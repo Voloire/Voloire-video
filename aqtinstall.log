@@ -1,0 +1,158 @@
+2026-10-15 09:06:48,480 - aqt.helper - DEBUG - helper 4652 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_653/Updates.xml.sha256
+2026-10-15 09:06:48,975 - aqt.helper - DEBUG - helper 4652 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_653_wasm_singlethread/Updates.xml.sha256
+2026-10-15 09:06:49,413 - aqt.helper - DEBUG - helper 4652 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_653_wasm_multithread/Updates.xml.sha256
+2026-10-15 09:06:53,586 - aqt.main - INFO - installer 40584 aqtinstall(aqt) v3.3.0 on Python 3.13.7 [CPython MSC v.1944 64 bit (AMD64)]
+2026-10-15 09:06:53,587 - aqt.helper - DEBUG - helper 40584 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_653/Updates.xml.sha256
+2026-10-15 09:06:54,662 - aqt.helper - DEBUG - helper 51496 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341qtbase-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z.sha256
+2026-10-15 09:06:54,662 - aqt.helper - DEBUG - helper 45540 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341qtsvg-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z.sha256
+2026-10-15 09:06:54,662 - aqt.helper - DEBUG - helper 21644 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341qtdeclarative-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z.sha256
+2026-10-15 09:06:54,666 - aqt.helper - DEBUG - helper 4464 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341qttools-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z.sha256
+2026-10-15 09:06:54,867 - aqt.helper - INFO - helper 51496 Downloading qtbase...
+2026-10-15 09:06:54,867 - aqt.installer - DEBUG - installer 51496 Download URL: https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341qtbase-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z
+2026-10-15 09:06:54,883 - aqt.helper - INFO - helper 21644 Downloading qtdeclarative...
+2026-10-15 09:06:54,883 - aqt.helper - INFO - helper 4464 Downloading qttools...
+2026-10-15 09:06:54,883 - aqt.installer - DEBUG - installer 21644 Download URL: https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341qtdeclarative-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z
+2026-10-15 09:06:54,883 - aqt.installer - DEBUG - installer 4464 Download URL: https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341qttools-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z
+2026-10-15 09:06:55,000 - aqt.helper - INFO - helper 45540 Downloading qtsvg...
+2026-10-15 09:06:55,000 - aqt.installer - DEBUG - installer 45540 Download URL: https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341qtsvg-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z
+2026-10-15 09:06:55,091 - aqt.helper - DEBUG - helper 4464 Asked to redirect(302) to: https://ftp.fau.de/qtproject/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341qttools-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z
+2026-10-15 09:06:55,091 - aqt.helper - INFO - helper 4464 Redirected: ftp.fau.de
+2026-10-15 09:06:55,115 - aqt.helper - DEBUG - helper 21644 Asked to redirect(302) to: https://ftp.fau.de/qtproject/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341qtdeclarative-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z
+2026-10-15 09:06:55,115 - aqt.helper - INFO - helper 21644 Redirected: ftp.fau.de
+2026-10-15 09:06:55,190 - aqt.helper - DEBUG - helper 51496 Asked to redirect(302) to: https://ftp.fau.de/qtproject/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341qtbase-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z
+2026-10-15 09:06:55,190 - aqt.helper - INFO - helper 51496 Redirected: ftp.fau.de
+2026-10-15 09:06:55,214 - aqt.helper - DEBUG - helper 45540 Asked to redirect(302) to: https://ftp.fau.de/qtproject/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341qtsvg-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z
+2026-10-15 09:06:55,214 - aqt.helper - INFO - helper 45540 Redirected: ftp.fau.de
+2026-10-15 09:06:55,726 - aqt.installer - INFO - installer 45540 Finished installation of qtsvg-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z in 1.06563510
+2026-10-15 09:06:55,734 - aqt.helper - DEBUG - helper 45540 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341qttranslations-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z.sha256
+2026-10-15 09:06:56,087 - aqt.helper - INFO - helper 45540 Downloading qttranslations...
+2026-10-15 09:06:56,087 - aqt.installer - DEBUG - installer 45540 Download URL: https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341qttranslations-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z
+2026-10-15 09:06:56,335 - aqt.helper - DEBUG - helper 45540 Asked to redirect(302) to: https://ftp.fau.de/qtproject/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341qttranslations-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z
+2026-10-15 09:06:56,335 - aqt.helper - INFO - helper 45540 Redirected: ftp.fau.de
+2026-10-15 09:06:57,178 - aqt.installer - INFO - installer 45540 Finished installation of qttranslations-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z in 1.44538550
+2026-10-15 09:06:57,187 - aqt.helper - DEBUG - helper 45540 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341d3dcompiler_47-x64.7z.sha256
+2026-10-15 09:06:57,412 - aqt.helper - INFO - helper 45540 Downloading d3dcompiler_47...
+2026-10-15 09:06:57,413 - aqt.installer - DEBUG - installer 45540 Download URL: https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341d3dcompiler_47-x64.7z
+2026-10-15 09:06:57,617 - aqt.helper - DEBUG - helper 45540 Asked to redirect(302) to: https://ftp.fau.de/qtproject/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341d3dcompiler_47-x64.7z
+2026-10-15 09:06:57,617 - aqt.helper - INFO - helper 45540 Redirected: ftp.fau.de
+2026-10-15 09:06:58,239 - aqt.installer - INFO - installer 45540 Finished installation of d3dcompiler_47-x64.7z in 1.05362380
+2026-10-15 09:06:58,247 - aqt.helper - DEBUG - helper 45540 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341opengl32sw-64-mesa_11_2_2-signed_sha256.7z.sha256
+2026-10-15 09:06:58,467 - aqt.helper - INFO - helper 45540 Downloading opengl32sw...
+2026-10-15 09:06:58,467 - aqt.installer - DEBUG - installer 45540 Download URL: https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341opengl32sw-64-mesa_11_2_2-signed_sha256.7z
+2026-10-15 09:06:58,688 - aqt.helper - DEBUG - helper 45540 Asked to redirect(302) to: https://ftp.fau.de/qtproject/online/qtsdkrepository/windows_x86/desktop/qt6_653/qt.qt6.653.win64_msvc2019_64/6.5.3-0-202309260341opengl32sw-64-mesa_11_2_2-signed_sha256.7z
+2026-10-15 09:06:58,688 - aqt.helper - INFO - helper 45540 Redirected: ftp.fau.de
+2026-10-15 09:06:59,296 - aqt.installer - INFO - installer 4464 Finished installation of qttools-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z in 4.63160530
+2026-10-15 09:06:59,593 - aqt.installer - INFO - installer 45540 Finished installation of opengl32sw-64-mesa_11_2_2-signed_sha256.7z in 1.34772910
+2026-10-15 09:07:03,609 - aqt.installer - INFO - installer 51496 Finished installation of qtbase-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z in 8.94905610
+2026-10-15 09:07:09,802 - aqt.installer - INFO - installer 21644 Finished installation of qtdeclarative-Windows-Windows_10_22H2-MSVC2019-Windows-Windows_10_22H2-X86_64.7z in 15.14153470
+2026-10-15 09:07:09,912 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\bin\qmake.exe
+2026-10-15 09:07:09,914 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Concurrent.prl
+2026-10-15 09:07:09,918 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Concurrentd.prl
+2026-10-15 09:07:09,922 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Core.prl
+2026-10-15 09:07:09,926 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Cored.prl
+2026-10-15 09:07:09,930 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6DBus.prl
+2026-10-15 09:07:09,933 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6DBusd.prl
+2026-10-15 09:07:09,936 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Designer.prl
+2026-10-15 09:07:09,940 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6DesignerComponents.prl
+2026-10-15 09:07:09,944 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6DesignerComponentsd.prl
+2026-10-15 09:07:09,947 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Designerd.prl
+2026-10-15 09:07:09,951 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6DeviceDiscoverySupport.prl
+2026-10-15 09:07:09,954 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6DeviceDiscoverySupportd.prl
+2026-10-15 09:07:09,958 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6EntryPoint.prl
+2026-10-15 09:07:09,961 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6EntryPointd.prl
+2026-10-15 09:07:09,965 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6ExampleIcons.prl
+2026-10-15 09:07:09,968 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6ExampleIconsd.prl
+2026-10-15 09:07:09,972 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6FbSupport.prl
+2026-10-15 09:07:09,975 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6FbSupportd.prl
+2026-10-15 09:07:09,979 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Gui.prl
+2026-10-15 09:07:09,982 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Guid.prl
+2026-10-15 09:07:09,985 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Help.prl
+2026-10-15 09:07:09,989 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Helpd.prl
+2026-10-15 09:07:09,993 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6LabsAnimation.prl
+2026-10-15 09:07:09,996 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6LabsAnimationd.prl
+2026-10-15 09:07:10,000 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6LabsFolderListModel.prl
+2026-10-15 09:07:10,004 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6LabsFolderListModeld.prl
+2026-10-15 09:07:10,008 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6LabsQmlModels.prl
+2026-10-15 09:07:10,011 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6LabsQmlModelsd.prl
+2026-10-15 09:07:10,015 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6LabsSettings.prl
+2026-10-15 09:07:10,019 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6LabsSettingsd.prl
+2026-10-15 09:07:10,022 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6LabsSharedImage.prl
+2026-10-15 09:07:10,026 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6LabsSharedImaged.prl
+2026-10-15 09:07:10,030 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6LabsWavefrontMesh.prl
+2026-10-15 09:07:10,033 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6LabsWavefrontMeshd.prl
+2026-10-15 09:07:10,036 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Network.prl
+2026-10-15 09:07:10,040 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Networkd.prl
+2026-10-15 09:07:10,043 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6OpenGL.prl
+2026-10-15 09:07:10,046 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6OpenGLd.prl
+2026-10-15 09:07:10,050 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6OpenGLWidgets.prl
+2026-10-15 09:07:10,053 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6OpenGLWidgetsd.prl
+2026-10-15 09:07:10,057 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6PacketProtocol.prl
+2026-10-15 09:07:10,060 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6PacketProtocold.prl
+2026-10-15 09:07:10,064 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6PrintSupport.prl
+2026-10-15 09:07:10,067 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6PrintSupportd.prl
+2026-10-15 09:07:10,071 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Qml.prl
+2026-10-15 09:07:10,075 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QmlCompiler.prl
+2026-10-15 09:07:10,079 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QmlCompilerd.prl
+2026-10-15 09:07:10,083 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QmlCore.prl
+2026-10-15 09:07:10,086 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QmlCored.prl
+2026-10-15 09:07:10,090 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Qmld.prl
+2026-10-15 09:07:10,093 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QmlDebug.prl
+2026-10-15 09:07:10,097 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QmlDebugd.prl
+2026-10-15 09:07:10,100 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QmlDom.prl
+2026-10-15 09:07:10,103 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QmlDomd.prl
+2026-10-15 09:07:10,106 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QmlLocalStorage.prl
+2026-10-15 09:07:10,110 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QmlLocalStoraged.prl
+2026-10-15 09:07:10,114 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QmlModels.prl
+2026-10-15 09:07:10,117 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QmlModelsd.prl
+2026-10-15 09:07:10,120 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QmlTypeRegistrar.prl
+2026-10-15 09:07:10,124 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QmlTypeRegistrard.prl
+2026-10-15 09:07:10,127 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QmlWorkerScript.prl
+2026-10-15 09:07:10,130 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QmlWorkerScriptd.prl
+2026-10-15 09:07:10,134 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QmlXmlListModel.prl
+2026-10-15 09:07:10,137 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QmlXmlListModeld.prl
+2026-10-15 09:07:10,142 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Quick.prl
+2026-10-15 09:07:10,145 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickControls2.prl
+2026-10-15 09:07:10,148 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickControls2d.prl
+2026-10-15 09:07:10,151 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickControls2Impl.prl
+2026-10-15 09:07:10,155 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickControls2Impld.prl
+2026-10-15 09:07:10,158 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickControlsTestUtils.prl
+2026-10-15 09:07:10,162 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickControlsTestUtilsd.prl
+2026-10-15 09:07:10,166 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Quickd.prl
+2026-10-15 09:07:10,169 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickDialogs2.prl
+2026-10-15 09:07:10,172 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickDialogs2d.prl
+2026-10-15 09:07:10,176 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickDialogs2QuickImpl.prl
+2026-10-15 09:07:10,180 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickDialogs2QuickImpld.prl
+2026-10-15 09:07:10,183 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickDialogs2Utils.prl
+2026-10-15 09:07:10,187 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickDialogs2Utilsd.prl
+2026-10-15 09:07:10,190 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickEffects.prl
+2026-10-15 09:07:10,194 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickEffectsd.prl
+2026-10-15 09:07:10,197 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickLayouts.prl
+2026-10-15 09:07:10,200 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickLayoutsd.prl
+2026-10-15 09:07:10,204 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickParticles.prl
+2026-10-15 09:07:10,207 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickParticlesd.prl
+2026-10-15 09:07:10,210 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickShapes.prl
+2026-10-15 09:07:10,214 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickShapesd.prl
+2026-10-15 09:07:10,217 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickTemplates2.prl
+2026-10-15 09:07:10,221 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickTemplates2d.prl
+2026-10-15 09:07:10,224 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickTest.prl
+2026-10-15 09:07:10,228 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickTestd.prl
+2026-10-15 09:07:10,231 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickTestUtils.prl
+2026-10-15 09:07:10,235 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickTestUtilsd.prl
+2026-10-15 09:07:10,239 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickWidgets.prl
+2026-10-15 09:07:10,243 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6QuickWidgetsd.prl
+2026-10-15 09:07:10,246 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Sql.prl
+2026-10-15 09:07:10,249 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Sqld.prl
+2026-10-15 09:07:10,253 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Svg.prl
+2026-10-15 09:07:10,256 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Svgd.prl
+2026-10-15 09:07:10,260 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6SvgWidgets.prl
+2026-10-15 09:07:10,264 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6SvgWidgetsd.prl
+2026-10-15 09:07:10,267 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Test.prl
+2026-10-15 09:07:10,270 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Testd.prl
+2026-10-15 09:07:10,274 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6UiTools.prl
+2026-10-15 09:07:10,277 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6UiToolsd.prl
+2026-10-15 09:07:10,281 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Widgets.prl
+2026-10-15 09:07:10,284 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Widgetsd.prl
+2026-10-15 09:07:10,288 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Xml.prl
+2026-10-15 09:07:10,292 - aqt.updater - INFO - updater 40584 Patching C:\Users\Voloirex\deps\qt\6.5.3\msvc2019_64\lib\Qt6Xmld.prl
+2026-10-15 09:07:10,295 - aqt.main - INFO - installer 40584 Finished installation
+2026-10-15 09:07:10,295 - aqt.main - INFO - installer 40584 Time elapsed: 16.70901920 second
