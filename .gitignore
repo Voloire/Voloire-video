@@ -1,0 +1,11 @@
+/build/
+/dist/
+/out/
+*.pdb
+*.obj
+*.user
+.vs/
+CMakeUserPresets.json
+installer/license.rtf
+__pycache__/
+*.pyc
