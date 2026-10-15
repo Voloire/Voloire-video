@@ -160,6 +160,10 @@ bool Recorder::start(const RecordConfig& cfg, std::string& err) {
     ep.width = sw;
     ep.height = sh;
   }
+  // With both channels, the first (default) track is their mix: players play only one track,
+  // and the separate SYS and MIC tracks stay for editing.
+  mixIndex_ = -1;
+  if (sys_.src && mic_.src) { mixIndex_ = (int)ep.audioTracks.size(); ep.audioTracks.push_back("MIX"); }
   if (sys_.src) { sys_.index = (int)ep.audioTracks.size(); ep.audioTracks.push_back("SYS"); }
   if (mic_.src) { mic_.index = (int)ep.audioTracks.size(); ep.audioTracks.push_back("MIC"); }
 
@@ -293,7 +297,7 @@ void Recorder::publishMeter(Track& t) {
 
 void Recorder::feedTrack(Track& t, bool paused) {
   if (!t.src) return;
-  if (paused) { t.src->ring().clear(); return; }
+  if (paused) { t.src->ring().clear(); t.outq.clear(); return; }
   const int64_t expected = elapsedUs() * kSampleRate / 1000000;
   const int64_t slack = kSampleRate * 60 / 1000;   // 60 ms
   std::vector<float> buf;
@@ -318,6 +322,7 @@ void Recorder::feedTrack(Track& t, bool paused) {
       }
       t.meterN += (int64_t)(m * kChannels);
       mux_->writeAudio(t.index, p, m);
+      if (mixIndex_ >= 0) t.outq.insert(t.outq.end(), p, p + m * kChannels);
       t.written += (int64_t)m;
     }
   } else if (expected - t.written > slack) {
@@ -325,10 +330,22 @@ void Recorder::feedTrack(Track& t, bool paused) {
     size_t pad = (size_t)(expected - t.written - kSampleRate * 10 / 1000);
     std::vector<float> zeros(pad * kChannels, 0.f);
     mux_->writeAudio(t.index, zeros.data(), pad);
+    if (mixIndex_ >= 0) t.outq.insert(t.outq.end(), zeros.begin(), zeros.end());
     t.written += (int64_t)pad;
     t.padded += (int64_t)pad;
     t.meterN += (int64_t)(pad * kChannels);
   }
+}
+
+void Recorder::mixTick() {
+  if (mixIndex_ < 0) return;
+  size_t n = std::min(sys_.outq.size(), mic_.outq.size()) / kChannels;
+  if (!n) return;
+  std::vector<float> mix(n * kChannels);
+  for (size_t i = 0; i < mix.size(); ++i) mix[i] = std::clamp(sys_.outq[i] + mic_.outq[i], -1.0f, 1.0f);
+  mux_->writeAudio(mixIndex_, mix.data(), n);
+  sys_.outq.erase(sys_.outq.begin(), sys_.outq.begin() + (ptrdiff_t)(n * kChannels));
+  mic_.outq.erase(mic_.outq.begin(), mic_.outq.begin() + (ptrdiff_t)(n * kChannels));
 }
 
 void Recorder::audioLoop() {
@@ -338,6 +355,7 @@ void Recorder::audioLoop() {
     { std::lock_guard tl(timeMu_); paused = paused_; }
     feedTrack(sys_, paused);
     feedTrack(mic_, paused);
+    mixTick();
     if (nowUs() - lastMeter >= 250000) {
       publishMeter(sys_);
       publishMeter(mic_);

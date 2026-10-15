@@ -154,6 +154,7 @@ struct Muxer::Impl {
     AudioTrack t;
     t.name = name;
     t.st = avformat_new_stream(fmt, nullptr);
+    t.st->disposition = tracks.empty() ? AV_DISPOSITION_DEFAULT : 0;  // players pick the first track
     t.ctx = avcodec_alloc_context3(codec);
     t.ctx->sample_rate = kSampleRate;
     t.ctx->sample_fmt = AV_SAMPLE_FMT_FLTP;

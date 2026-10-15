@@ -5,7 +5,7 @@ Windows recorder for one window or application, with the application's own audio
 ## What it does
 
 - **Source**: any window, windowed or borderless fullscreen (Windows Graphics Capture), a whole monitor, or a monitor through DXGI Desktop Duplication for exclusive fullscreen.
-- **Two audio channels** in one file, each its own track:
+- **Two audio channels** in one file. With both on, track 1 is `MIX` (SYS + MIC, the default, so any player plays both), then `SYS` and `MIC` separately for editing:
   - `SYS`: only the audio of the selected application and its child processes (WASAPI process loopback), or the full output of a chosen device, or off.
   - `MIC`: the default microphone, any chosen capture device, or off.
 - **Format**: MKV (crash safe) or MP4, H.264, HEVC or AV1, NVENC, AMF, Quick Sync or Media Foundation (auto picks the first that opens), source size or 480p to 2160p, 24 to 120 fps, bitrate.
