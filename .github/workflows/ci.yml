@@ -36,6 +36,11 @@ jobs:
         shell: pwsh
         run: python tests\e2e\run_e2e.py --only synthetic_basic,pause_resume,errors
 
+      - name: Keep the e2e report
+        if: always()
+        shell: pwsh
+        run: Copy-Item "$env:TEMP\vv-e2e\report.json" dist-report.json -ErrorAction SilentlyContinue
+
       - name: Package
         shell: pwsh
         run: scripts\package.ps1 -SkipBuild
@@ -51,5 +56,5 @@ jobs:
           path: |
             dist/*.exe
             dist/*.msi
-            ${{ runner.temp }}/../vv-e2e/report.json
+            dist-report.json
           if-no-files-found: ignore

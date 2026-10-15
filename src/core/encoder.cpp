@@ -15,6 +15,8 @@ extern "C" {
 namespace vv {
 
 namespace {
+std::atomic<bool> g_probing{false};
+
 void avLogToTelemetry(void*, int level, const char* fmt, va_list vl) {
   if (level > AV_LOG_WARNING) return;
   char line[512];
@@ -22,7 +24,8 @@ void avLogToTelemetry(void*, int level, const char* fmt, va_list vl) {
   std::string m = line;
   while (!m.empty() && (m.back() == '\n' || m.back() == '\r')) m.pop_back();
   if (m.empty()) return;
-  Telemetry::get().log(level <= AV_LOG_ERROR ? Level::Error : Level::Warn, "ffmpeg", m);
+  // While candidates are tried in turn, a missing GPU or driver is expected, not an error.
+  Telemetry::get().log(g_probing ? Level::Info : level <= AV_LOG_ERROR ? Level::Error : Level::Warn, "ffmpeg", m);
 }
 
 std::string avErr(int e) {
@@ -126,12 +129,14 @@ struct Muxer::Impl {
       candidates.push_back(p.codec + "_" + p.encoder);
     }
     std::string why;
+    g_probing = true;
     for (auto& c : candidates) {
       std::string e;
       if (openVideoCodec(c.c_str(), e)) { VV_LOG(Info, "encoder", "video encoder opened", {{"name", c}}); break; }
       why += (why.empty() ? "" : "; ") + e;
       VV_LOG(Info, "encoder", "video encoder unavailable", {{"name", c}, {"why", e}});
     }
+    g_probing = false;
     if (!vctx) { err = "no video encoder could be opened: " + why; return false; }
     vst->time_base = vctx->time_base;
     avcodec_parameters_from_context(vst->codecpar, vctx);

@@ -54,7 +54,7 @@ class Recorder {
     int64_t written = 0;     // frames handed to the muxer
     int64_t padded = 0;      // frames of inserted silence
     int64_t trimmed = 0;     // frames dropped to cancel drift
-    double peak = 0, sumSq = 0;
+    double peak = 0, sumSq = 0, maxPeak = 0;
     int64_t meterN = 0;
   };
 

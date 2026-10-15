@@ -126,8 +126,8 @@ def sc_synthetic_basic(out):
     check_container(rep, res["path"], "h264", 720, 30, 2, 5.7, 6.4)
     m = check_telemetry(rep, res)
     rep.check("telemetry: video.fps_actual close to 30", 27 <= m.get("video.fps_actual", 0) <= 33, m.get("video.fps_actual"))
-    rep.check("telemetry: SYS level not silent", m.get("audio.sys.peak_db", -120) > -20, m.get("audio.sys.peak_db"))
-    rep.check("telemetry: MIC level not silent", m.get("audio.mic.peak_db", -120) > -30, m.get("audio.mic.peak_db"))
+    rep.check("telemetry: SYS level not silent", m.get("audio.sys.max_peak_db", -120) > -20, m.get("audio.sys.max_peak_db"))
+    rep.check("telemetry: MIC level not silent", m.get("audio.mic.max_peak_db", -120) > -30, m.get("audio.mic.max_peak_db"))
     check_sync_and_tones(rep, res["path"], expect_flashes=(5, 7), isolation=False)
     vtimes_ok(rep, res["path"])
     return rep

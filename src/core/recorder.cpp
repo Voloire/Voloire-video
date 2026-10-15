@@ -281,7 +281,9 @@ void Recorder::publishMeter(Track& t) {
   auto& tel = Telemetry::get();
   std::string k = std::string("audio.") + t.label;
   tel.set(k + ".rms_db", toDb(std::sqrt(t.sumSq / (double)t.meterN)));
+  t.maxPeak = std::max(t.maxPeak, t.peak);
   tel.set(k + ".peak_db", toDb(t.peak));
+  tel.set(k + ".max_peak_db", toDb(t.maxPeak));  // since the start: a beep every second would otherwise hide
   tel.set(k + ".padded_ms", t.padded * 1000.0 / kSampleRate);
   tel.set(k + ".trimmed_ms", t.trimmed * 1000.0 / kSampleRate);
   tel.set(k + ".written_s", (double)t.written / kSampleRate);
