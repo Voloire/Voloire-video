@@ -59,8 +59,10 @@ def check_container(rep, path, codec="h264", height=None, fps=None, audio=2, min
         rep.check(f"media: {fps} fps", v and abs(fps_of(v[0]) - fps) < 0.01, v[0]["r_frame_rate"] if v else "")
     rep.check(f"media: {audio} audio streams", len(a) == audio, len(a))
     titles = [s.get("tags", {}).get("title") for s in a]
-    if audio == 2:
-        rep.check("media: tracks titled SYS, MIC", titles == ["SYS", "MIC"], titles)
+    if audio == 3:
+        rep.check("media: tracks titled MIX, SYS, MIC", titles == ["MIX", "SYS", "MIC"], titles)
+        rep.check("media: MIX is the default track", a[0].get("disposition", {}).get("default") == 1 and
+                  all(x.get("disposition", {}).get("default") == 0 for x in a[1:]))
     dur = float(info["format"]["duration"])
     if min_s is not None:
         rep.check(f"media: duration within {min_s}..{max_s} s", min_s <= dur <= max_s, f"{dur:.2f}")
@@ -74,7 +76,7 @@ def check_sync_and_tones(rep, path, sys_hz=440, mic_hz=1000, expect_flashes=None
                          isolation=True):
     luma, fps, vstart = decode_luma(path)
     flashes, _ = flash_times(luma, fps, vstart)
-    sysx = decode_audio(path, 0)
+    sysx = decode_audio(path, track_index(path, "SYS") or 0)
     onsets, _ = beep_onsets(sysx)
     if expect_flashes:
         lo, hi = expect_flashes
@@ -95,8 +97,13 @@ def check_sync_and_tones(rep, path, sys_hz=440, mic_hz=1000, expect_flashes=None
         rep.check("SYS: nothing from the other process (880 Hz) leaks in", p440 > 0 and p880 / p440 < 0.02,
                   f"ratio {p880 / max(p440, 1e-12):.4f}")
     if check_mic_tone:
-        micx = decode_audio(path, 1)
+        micx = decode_audio(path, track_index(path, "MIC"))
         f = dominant_freq(micx[RATE:])
+        mixx = decode_audio(path, track_index(path, "MIX"))
+        rep.check("MIX: carries both the SYS tone and the MIC tone",
+                  band_power(mixx, sys_hz) > 0 and band_power(mixx, mic_hz) / max(band_power(micx, mic_hz), 1e-12) > 0.5 and
+                  band_power(mixx, sys_hz) / max(band_power(sysx, sys_hz), 1e-12) > 0.5,
+                  f"sys {band_power(mixx, sys_hz):.2e} mic {band_power(mixx, mic_hz):.2e}")
         rep.check(f"MIC: tone is {mic_hz} Hz", abs(f - mic_hz) < 20, f"{f:.0f} Hz")
     return flashes, onsets
 
@@ -123,7 +130,7 @@ def sc_synthetic_basic(out):
         return rep
     rep.check("no dropped ticks", res["droppedTicks"] == 0, res["droppedTicks"])
     rep.check("frame count ~ 6 s * 30 fps", 170 <= res["videoFrames"] <= 190, res["videoFrames"])
-    check_container(rep, res["path"], "h264", 720, 30, 2, 5.7, 6.4)
+    check_container(rep, res["path"], "h264", 720, 30, 3, 5.7, 6.4)
     m = check_telemetry(rep, res)
     rep.check("telemetry: video.fps_actual close to 30", 27 <= m.get("video.fps_actual", 0) <= 33, m.get("video.fps_actual"))
     rep.check("telemetry: SYS level not silent", m.get("audio.sys.max_peak_db", -120) > -20, m.get("audio.sys.max_peak_db"))
@@ -169,13 +176,13 @@ def sc_pause_resume(out):
     if "path" not in res:
         return rep
     rep.check("cli exits cleanly after shutdown", p.returncode in (0, 4), p.returncode)
-    info = check_container(rep, res["path"], "h264", 720, 30, 2, 3.6, 4.5)
+    info = check_container(rep, res["path"], "h264", 720, 30, 3, 3.6, 4.5)
     rep.check("file is 4 s of media, not 6 s of wall time (pause removed)", info and 3.6 <= float(info["format"]["duration"]) <= 4.5)
     m = check_telemetry(rep, res)
     luma, fps, vs = decode_luma(res["path"])
     fl, _ = flash_times(luma, fps, vs)
     rep.check("video: 3..5 flashes in 4 s of media", 3 <= len(fl) <= 5, len(fl))
-    sysx = decode_audio(res["path"], 0)
+    sysx = decode_audio(res["path"], track_index(res["path"], "SYS"))
     rep.check("audio track length matches video within 100 ms",
               abs(len(sysx) / RATE - rep.data["duration"]) < 0.1, f"{len(sysx) / RATE:.2f} s vs {rep.data['duration']:.2f} s")
     vtimes_ok(rep, res["path"])
@@ -199,7 +206,7 @@ def sc_formats(out):
         ok, why = decodes_clean(res["path"])
         rep.check(f"{tag}: codec/size/rate/decode", v.get("codec_name") == codec and v.get("height") == h and
                   abs(fps_of(v) - fps) < 0.01 and ok, f"{v.get('codec_name')} {v.get('width')}x{v.get('height')} {v.get('r_frame_rate')} via {res['encoder']} {why}")
-        rep.check(f"{tag}: two audio tracks", info and len(streams(info, "audio")) == 2)
+        rep.check(f"{tag}: MIX, SYS, MIC tracks", info and len(streams(info, "audio")) == 3)
     return rep
 
 
@@ -296,8 +303,8 @@ def sc_mic_real(out):
     rc, res, err = run_cli(["record", "--synthetic", "--mic", "default", "--duration", 3, "--fps", 30, "--out", d / "default", "--name", "m"])
     if rep.check("default microphone: recorded", rc == 0 and res, f"rc={rc} {err[-200:]}"):
         m = check_telemetry(rep, res, expect_audio=("mic",))
-        check_container(rep, res["path"], "h264", 720, 30, 2, 2.7, 3.6)
-        x = decode_audio(res["path"], 1)
+        check_container(rep, res["path"], "h264", 720, 30, 3, 2.7, 3.6)
+        x = decode_audio(res["path"], track_index(res["path"], "MIC"))
         rep.check("MIC track has the full length", abs(len(x) / RATE - 3.0) < 0.35, f"{len(x) / RATE:.2f} s")
         rep.data["mic_default_rms_db"] = m.get("audio.mic.rms_db")
     started, failed = 0, []
@@ -306,7 +313,7 @@ def sc_mic_real(out):
                                 "--out", d / "dev", "--name", "m"])
         if rc == 0 and res:
             started += 1
-            x = decode_audio(res["path"], 1)
+            x = decode_audio(res["path"], track_index(res["path"], "MIC"))
             rep.check(f"device '{dev['name']}': 2 s of audio", abs(len(x) / RATE - 2.0) < 0.35, f"{len(x) / RATE:.2f} s")
         else:
             failed.append((dev["name"], err.strip()[-120:]))
@@ -378,7 +385,7 @@ def sc_longer_soak(out):
     rep.check("cli exit code 0", rc == 0, f"rc={rc}")
     if not res:
         return rep
-    check_container(rep, res["path"], "h264", 720, 60, 2, 59.5, 61)
+    check_container(rep, res["path"], "h264", 720, 60, 3, 59.5, 61)
     rep.check("no dropped ticks in 60 s", res["droppedTicks"] <= 2, res["droppedTicks"])
     m = check_telemetry(rep, res)
     rep.check("encoder keeps up: mean encode time < 8 ms", m.get("video.encode_ms", 99) < 8, m.get("video.encode_ms"))
@@ -387,7 +394,7 @@ def sc_longer_soak(out):
               f"padded {m.get('audio.sys.padded_ms')} trimmed {m.get('audio.sys.trimmed_ms')}")
     luma, fps, vs = decode_luma(res["path"])
     fl, _ = flash_times(luma, fps, vs)
-    on, _ = beep_onsets(decode_audio(res["path"], 0))
+    on, _ = beep_onsets(decode_audio(res["path"], track_index(res["path"], "SYS")))
     # sync at the start and at the end of the hour-glass must agree: no drift
     head = av_offset(fl[fl < 10], on[on < 10])[0]
     tail = av_offset(fl[fl > 50], on[on > 50])[0]

@@ -56,6 +56,7 @@ class Recorder {
     int64_t trimmed = 0;     // frames dropped to cancel drift
     double peak = 0, sumSq = 0, maxPeak = 0;
     int64_t meterN = 0;
+    std::vector<float> outq;  // what was written, waiting to be mixed into the MIX track
   };
 
   void setState(RecState s);
@@ -63,6 +64,7 @@ class Recorder {
   void audioLoop();
   void feedTrack(Track& t, bool paused);
   void publishMeter(Track& t);
+  void mixTick();
   void handleSourceClosed(const std::string& why);
   RecResult finish(const std::string& error);
 
@@ -80,6 +82,8 @@ class Recorder {
 
   int64_t t0_ = 0, pausedTotal_ = 0, pauseStart_ = 0;
   bool paused_ = false;
+
+  int mixIndex_ = -1;  // muxer track of the SYS+MIC mix, -1 when only one channel is recorded
 
   std::mutex frameMu_;
   FramePtr latest_;

@@ -176,6 +176,12 @@ def decodes_clean(path):
     return p.returncode == 0 and not p.stderr.strip(), p.stderr.strip()[:200]
 
 
+def track_index(path, title):
+    """Index among the audio streams of the track titled MIX, SYS or MIC (None when absent)."""
+    titles = [s.get("tags", {}).get("title") for s in streams(probe(path), "audio")]
+    return titles.index(title) if title in titles else None
+
+
 def decode_audio(path, index):
     """Mono float32 samples at 48 kHz of the index-th audio stream."""
     p = subprocess.run([FFMPEG, "-v", "error", "-i", str(path), "-map", f"0:a:{index}", "-ac", "1", "-ar", str(RATE),
