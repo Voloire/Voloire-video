@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- WiX 3.14 definition of the Voloire-video .msi (per-user, no elevation needed).
+     Built by scripts\package.ps1, which harvests the staged folder into files.wxs with heat. -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Voloire-video" Language="1033" Version="$(var.Version)" Manufacturer="Voloire"
+           UpgradeCode="48040B1D-29AF-411D-8514-F5CF16FC6434">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser" Platform="x64"
+             Description="Voloire-video $(var.Version)" Comments="Window and app audio recorder" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Voloire-video is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+    <Condition Message="Voloire-video needs Windows 10 version 2004 (build 19041) or later.">
+      <![CDATA[Installed OR VersionNT >= 603]]>
+    </Condition>
+
+    <Icon Id="AppIcon.ico" SourceFile="$(var.RepoDir)\assets\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Voloire/Voloire-video" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.RepoDir)\installer\license.rtf" />
+    <UIRef Id="WixUI_InstallDir" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="ProgramsFolder" Name="Programs">
+          <Directory Id="INSTALLFOLDER" Name="Voloire-video" />
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="StartMenuDir" Name="Voloire-video" />
+      </Directory>
+    </Directory>
+
+    <DirectoryRef Id="StartMenuDir">
+      <Component Id="StartMenuShortcut" Guid="B6F3A1D2-5C0E-4E8B-9D57-2E1A7C3F8A10">
+        <Shortcut Id="AppShortcut" Name="Voloire-video" Description="Window and app audio recorder"
+                  Target="[INSTALLFOLDER]voloire-video.exe" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon.ico" />
+        <RemoveFolder Id="RemoveStartMenuDir" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\Voloire\Voloire-video" Name="startmenu" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="Main" Title="Voloire-video" Level="1" ConfigurableDirectory="INSTALLFOLDER" Absent="disallow">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+  </Product>
+</Wix>
