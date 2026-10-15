@@ -22,7 +22,7 @@ Download one of the installers from the latest release (both install per user, n
 - `voloire-video-setup-<version>.exe`
 - `voloire-video-<version>.msi`
 
-Silent: `voloire-video-setup-1.0.0.exe /VERYSILENT` or `msiexec /i voloire-video-1.0.0.msi /qn`.
+Silent: `voloire-video-setup-1.0.1.exe /VERYSILENT` or `msiexec /i voloire-video-1.0.1.msi /qn`.
 
 ## Use
 
