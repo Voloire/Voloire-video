@@ -2,6 +2,7 @@
 #include <QActionGroup>
 #include <QApplication>
 #include <QDesktopServices>
+#include <QMouseEvent>
 #include <QTimer>
 #include <QUrl>
 #include "panel.h"
@@ -18,6 +19,43 @@ QAction* findAction(QMenu* m, const QString& text) {
     if (!a->isSeparator() && clean(a->text()) == text) return a;
   return nullptr;
 }
+
+class MenuStayOpenFilter : public QObject {
+ public:
+  MenuStayOpenFilter(QMenu* root, std::function<void()> syncFn)
+      : QObject(root), root_(root), syncFn_(std::move(syncFn)) {}
+
+ protected:
+  bool eventFilter(QObject* o, QEvent* e) override {
+    auto* m = qobject_cast<QMenu*>(o);
+    if (!m) return QObject::eventFilter(o, e);
+    if (e->type() == QEvent::MouseButtonPress) {
+      auto* me = static_cast<QMouseEvent*>(e);
+      if (me->button() == Qt::RightButton) {
+        root_->close();
+        return true;
+      }
+    } else if (e->type() == QEvent::MouseButtonRelease) {
+      auto* me = static_cast<QMouseEvent*>(e);
+      if (me->button() == Qt::RightButton) return true;
+      if (me->button() == Qt::LeftButton) {
+        QAction* a = m->actionAt(me->pos());
+        if (a && a->isEnabled() && !a->menu() && a->property("keepOpen").toBool()) {
+          a->trigger();
+          if (syncFn_) syncFn_();
+          m->update();
+          root_->update();
+          return true;
+        }
+      }
+    }
+    return QObject::eventFilter(o, e);
+  }
+
+ private:
+  QMenu* root_;
+  std::function<void()> syncFn_;
+};
 
 }  // namespace
 
@@ -75,6 +113,7 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
       QAction* a = src->addAction(text);
       a->setCheckable(true);
       a->setChecked(checked);
+      a->setProperty("keepOpen", true);
       grp->addAction(a);
       QObject::connect(a, &QAction::triggered, &menu, [fn] { fn(); });
     };
@@ -94,6 +133,7 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
           [p, i = m.index] { p->setVideoSource("dxgi", i); });
     src->addSeparator();
     QAction* r = src->addAction("Refresh lists");
+    r->setProperty("keepOpen", true);
     QObject::connect(r, &QAction::triggered, &menu, [p] { p->refreshSources(); });
   }
 
@@ -103,6 +143,7 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
     QAction* a = sub->addAction(text);
     a->setCheckable(true);
     a->setChecked(checked);
+    a->setProperty("keepOpen", true);
     QObject::connect(a, &QAction::triggered, &menu, [fn] { fn(); });
     return a;
   };
@@ -159,6 +200,7 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
       QAction* a = shr->addAction(mb ? QString("%1 MB").arg(mb) : QString("Off"));
       a->setCheckable(true);
       a->setChecked(panel.shareTargetMB() == mb);
+      a->setProperty("keepOpen", true);
       grp->addAction(a);
       QObject::connect(a, &QAction::triggered, &menu, [p, mb] { p->setShareTarget(mb); });
     }
@@ -166,8 +208,10 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
     QAction* clip = shr->addAction("Copy to clipboard when ready");
     clip->setCheckable(true);
     clip->setChecked(panel.shareToClipboard());
+    clip->setProperty("keepOpen", true);
     QObject::connect(clip, &QAction::triggered, &menu, [p](bool on) { p->setShareToClipboard(on); });
     QAction* again = shr->addAction("Make share copy of last recording");
+    again->setProperty("keepOpen", true);
     vv::json sh = panel.shareStatus();
     again->setEnabled(!panel.lastRecording().isEmpty() && sh.value("state", std::string("idle")) != "running");
     QObject::connect(again, &QAction::triggered, &menu, [p] { p->shareLastRecording(); });
@@ -184,16 +228,19 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
 
   // YouTube: the key (its fate is the only thing shown) and the studio page.
   QMenu* yt = menu.addMenu("YouTube");
+  QAction* ytInfo = nullptr;
+  QAction* ytClear = nullptr;
   {
     const bool keySet = panel.streamKeySet();
-    QAction* info = yt->addAction(keySet ? "Stream key: set" : "Stream key: not set");
-    info->setEnabled(false);
+    ytInfo = yt->addAction(keySet ? "Stream key: set" : "Stream key: not set");
+    ytInfo->setEnabled(false);
     QAction* pick = yt->addAction("Set stream key...");
     pick->setEnabled(idle);
     QObject::connect(pick, &QAction::triggered, &menu, [p] { p->promptStreamKey(); });
-    QAction* clr = yt->addAction("Clear stream key");
-    clr->setEnabled(idle && keySet);
-    QObject::connect(clr, &QAction::triggered, &menu, [p] { p->clearStreamKey(); });
+    ytClear = yt->addAction("Clear stream key");
+    ytClear->setEnabled(idle && keySet);
+    ytClear->setProperty("keepOpen", true);
+    QObject::connect(ytClear, &QAction::triggered, &menu, [p] { p->clearStreamKey(); });
     yt->addSeparator();
     QAction* studio = yt->addAction("Open YouTube Studio");
     QObject::connect(studio, &QAction::triggered, &menu, [] {
@@ -211,6 +258,7 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
       QAction* a = m->addAction(text);
       a->setCheckable(true);
       a->setChecked(key == mode + "|" + id);
+      a->setProperty("keepOpen", true);
       grp->addAction(a);
       QObject::connect(a, &QAction::triggered, &menu, [p, sys, mode, id] { if (sys) p->setSys(mode, id); else p->setMic(mode, id); });
     };
@@ -228,6 +276,7 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
   QAction* hud = menu.addAction("Show status bar");
   hud->setCheckable(true);
   hud->setChecked(hooks.hudVisible && hooks.hudVisible());
+  hud->setProperty("keepOpen", true);
   QObject::connect(hud, &QAction::triggered, &menu, [set = hooks.setHudVisible](bool on) { if (set) set(on); });
   QObject::connect(menu.addAction("Open panel"), &QAction::triggered, &menu, [s = hooks.showPanel] { if (s) s(); });
   QObject::connect(menu.addAction("Open recordings folder"), &QAction::triggered, &menu, [p] {
@@ -241,6 +290,20 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
       qApp->quit();
     });
   });
+
+  auto* stayFilter = new MenuStayOpenFilter(&menu, [p, startStop, pause, ytInfo, ytClear] {
+    const RS s = p->recState();
+    const bool isStream = p->outputKind() == "stream";
+    const bool keyOk = p->streamKeySet();
+    startStop->setText(s == RS::Idle ? (isStream ? "Go live" : "Start recording")
+                                     : (isStream ? "End stream" : "Stop recording"));
+    startStop->setEnabled(!p->starting() && (s != RS::Idle || !isStream || keyOk));
+    pause->setEnabled((s == RS::Recording || s == RS::Paused) && !isStream);
+    if (ytInfo) ytInfo->setText(keyOk ? "Stream key: set" : "Stream key: not set");
+    if (ytClear) ytClear->setEnabled(s == RS::Idle && !p->starting() && keyOk);
+  });
+  menu.installEventFilter(stayFilter);
+  for (QMenu* m : menu.findChildren<QMenu*>()) m->installEventFilter(stayFilter);
 
   // The shared menus (and their submenus) speak the status-bar palette.
   const QString style = hudMenuStyleSheet();

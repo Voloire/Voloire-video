@@ -10,6 +10,7 @@ class QLineEdit;
 class QPushButton;
 class QRadioButton;
 class QSpinBox;
+class QTabWidget;
 class QTimer;
 
 namespace vv::ui {
@@ -27,6 +28,9 @@ class MainPanel : public QWidget {
   vv::RecordConfig currentConfig() const;
   void setOverride(const vv::json& j) { override_ = j; emit changed(); }  // test hook: force config fields
   void setPrefs(vv::UiPrefs* p);  // shared with the status bar: one source of truth for ui.json
+  void setDarkMode(bool dark);
+  bool darkMode() const;
+  void setActiveTab(int index);
 
   void refreshSources();
   void selectWindow(qint64 hwnd);   // 0 = follow the active window
@@ -92,6 +96,7 @@ class MainPanel : public QWidget {
   void useActiveNow();
   void showError(const QString& m);
   void startShare(const QString& path, int mb);
+  void syncKeyUi();
   vv::WindowInfo findWindow(qint64 hwnd) const;
 
   vv::AppController& app_;
@@ -107,14 +112,21 @@ class MainPanel : public QWidget {
   bool loading_ = false;
   std::thread startTh_;
 
+  QTabWidget* tabs_ = nullptr;
+  QPushButton* themeBtn_ = nullptr;
   QRadioButton *rbWindow_, *rbMonitor_, *rbDxgi_;
   QComboBox *winCombo_, *monCombo_, *sysCombo_, *micCombo_, *containerCombo_, *codecCombo_, *encoderCombo_, *resCombo_,
       *fpsCombo_, *qualityCombo_, *shareCombo_, *outputCombo_;
-  QSpinBox *bitrate_, *streamKbps_;
-  QLineEdit *dirEdit_, *urlEdit_, *keyEdit_;
-  QPushButton* keySave_;
-  QWidget* streamCard_;  // the Stream group, shown in stream mode
-  LevelMeter *sysMeter_, *micMeter_;
+  QComboBox *ytOutputCombo_ = nullptr, *streamServerCombo_ = nullptr, *streamPresetCombo_ = nullptr,
+            *streamResCombo_ = nullptr, *ytFpsCombo_ = nullptr, *ytEncoderCombo_ = nullptr,
+            *ytSysCombo_ = nullptr, *ytMicCombo_ = nullptr;
+  QSpinBox *bitrate_, *streamKbps_, *ytKbps_ = nullptr;
+  QLineEdit *dirEdit_, *urlEdit_, *keyEdit_, *ytUrlEdit_ = nullptr, *ytKeyEdit_ = nullptr;
+  QPushButton *keySave_, *keyClear_ = nullptr, *studioBtn_ = nullptr,
+              *ytKeySave_ = nullptr, *ytKeyClear_ = nullptr, *ytStudioBtn_ = nullptr;
+  QLabel *keyStateLabel_ = nullptr, *ytKeyStateLabel_ = nullptr;
+  QWidget* streamCard_;  // the Stream group in the Recording tab (always visible)
+  LevelMeter *sysMeter_, *micMeter_, *ytSysMeter_ = nullptr, *ytMicMeter_ = nullptr;
   QLabel *timerLabel_, *stateLabel_, *infoLabel_, *errLabel_;
   QPushButton *recBtn_, *pauseBtn_;
   QTimer *pollTimer_, *fgTimer_;

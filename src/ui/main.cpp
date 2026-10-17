@@ -30,6 +30,16 @@ json screenshots(MainPanel& panel, TrayController& tray, HudBar& hud, const QStr
   panel.refreshSources();
   QApplication::processEvents();
   save(panel.grab(), "panel.png");
+  panel.setActiveTab(1);
+  QApplication::processEvents();
+  save(panel.grab(), "panel_stream.png");
+  bool wasDark = panel.darkMode();
+  panel.setDarkMode(true);
+  QApplication::processEvents();
+  save(panel.grab(), "panel_dark.png");
+  panel.setDarkMode(wasDark);
+  panel.setActiveTab(0);
+  QApplication::processEvents();
   tray.rebuildMenu();
   tray.menu()->adjustSize();
   save(tray.menu()->grab(), "menu.png");
@@ -72,12 +82,13 @@ int main(int argc, char** argv) {
   QFont f("Ubuntu");
   f.setPixelSize(13);
   app.setFont(f);
-  app.setStyleSheet(styleSheet());
+  UiPrefs uiPrefs = loadUiPrefs();
+  setDarkTheme(uiPrefs.darkTheme);
+  app.setStyleSheet(styleSheet(uiPrefs.darkTheme));
 
   AppController ctl;
   ctl.setConfig(loadSettings());
   MainPanel panel(ctl);
-  UiPrefs uiPrefs = loadUiPrefs();
   panel.setPrefs(&uiPrefs);  // share target and clipboard: one ui.json shared with the status bar
   HudBar hud(&panel, &uiPrefs);
   TrayController tray(&panel);

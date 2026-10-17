@@ -124,7 +124,8 @@ std::string uiPrefsPath() { return strOf(pathOf(settingsPath()).parent_path() / 
 
 json UiPrefs::toJson() const {
   return {{"hud", hud}, {"hudX", hudX}, {"hudY", hudY},
-          {"shareTargetMB", shareTargetMB}, {"shareToClipboard", shareToClipboard}};
+          {"shareTargetMB", shareTargetMB}, {"shareToClipboard", shareToClipboard},
+          {"darkTheme", darkTheme}};
 }
 
 UiPrefs UiPrefs::fromJson(const json& j) {
@@ -134,6 +135,7 @@ UiPrefs UiPrefs::fromJson(const json& j) {
   get(j, "hudY", p.hudY);
   get(j, "shareTargetMB", p.shareTargetMB);
   get(j, "shareToClipboard", p.shareToClipboard);
+  get(j, "darkTheme", p.darkTheme);
   return p;
 }
 

@@ -176,8 +176,12 @@ void HudBar::mousePressEvent(QMouseEvent* e) {
     dragFrom_ = e->globalPosition().toPoint() - frameGeometry().topLeft();
     e->accept();
   } else if (e->button() == Qt::RightButton) {
-    rebuildMenu();
-    menu_.popup(e->globalPosition().toPoint());
+    if (menu_.isVisible()) {
+      menu_.close();
+    } else {
+      rebuildMenu();
+      menu_.popup(e->globalPosition().toPoint());
+    }
     e->accept();
   }
 }

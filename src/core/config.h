@@ -57,6 +57,7 @@ struct UiPrefs {
   int hudX = -1, hudY = -1;   // -1: never placed, use the default position
   int shareTargetMB = 0;      // 0 = off (Task 5)
   bool shareToClipboard = true;
+  bool darkTheme = false;     // false = light sage, true = dark charcoal/sage
   json toJson() const;
   static UiPrefs fromJson(const json& j);
 };

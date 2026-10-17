@@ -91,7 +91,9 @@ bool Recorder::start(const RecordConfig& cfg, std::string& err) {
       err = "no stream key: set it in YouTube > Set stream key, or pass --stream-key";
       return false;  // still before any source starts and before anything touches the network
     }
-    streamTarget_ = cfg.streamUrl + "/" + key;
+    auto qpos = cfg.streamUrl.find('?');
+    if (qpos == std::string::npos) streamTarget_ = cfg.streamUrl + "/" + key;
+    else streamTarget_ = cfg.streamUrl.substr(0, qpos) + "/" + key + cfg.streamUrl.substr(qpos);
   }
 
   state_ = RecState::Starting;

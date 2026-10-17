@@ -34,7 +34,9 @@ inline const QColor rec(0xEF, 0x27, 0x46);
 inline const QColor paused(0xFF, 0xB0, 0x00);
 }  // namespace hud
 
-QString styleSheet();
+QString styleSheet(bool dark = false);
+void setDarkTheme(bool dark);
+bool isDarkTheme();
 QString hudMenuStyleSheet();  // the shared control menus, in the hud tokens
 void loadFonts(const QString& dir);  // Ubuntu, Ubuntu Mono
 QString monoFamily();
