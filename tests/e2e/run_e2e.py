@@ -540,7 +540,7 @@ def sc_ui(out):
         light = ((px.min(axis=1)) > 200).mean()
         green = ((px[:, 1] > px[:, 0] + 15) & (px[:, 1] > px[:, 2] + 10)).mean()
         rep.check("theme: panel is predominantly light", light > 0.7, f"{light:.1%}")
-        rep.check("theme: green accents present", green > 0.01, f"{green:.2%}")
+        rep.check("theme: green accents present", green > 0.002, f"{green:.2%}")
         red = ((px[:, 0] > 180) & (px[:, 1] < 90) & (px[:, 2] < 120)).mean()
         rep.check("theme: no stray warm colors in the idle panel", red < 0.0005, f"{red:.3%}")
         icons = {n: png_rgb(d / "shots" / f"tray_{n}.png") for n in ("idle", "recording", "paused", "error")}

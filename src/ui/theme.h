@@ -48,7 +48,7 @@ class LevelMeter : public QWidget {
  public:
   explicit LevelMeter(QWidget* parent = nullptr);
   void setLevels(double rmsDb, double peakDb);
-  QSize sizeHint() const override { return {220, 14}; }
+  QSize sizeHint() const override { return {220, 8}; }
   double rmsDb() const { return rms_; }
 
  protected:

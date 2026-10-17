@@ -81,6 +81,8 @@ class MainPanel : public QWidget {
 
  protected:
   bool eventFilter(QObject* o, QEvent* e) override;
+  void mousePressEvent(QMouseEvent* e) override;
+  void mouseMoveEvent(QMouseEvent* e) override;
 
  private:
   void build();

@@ -5,6 +5,7 @@
 #include <QFileDialog>
 #include <QFrame>
 #include <QGridLayout>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLabel>
@@ -12,7 +13,10 @@
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QScreen>
+#include <QScrollArea>
 #include <QSignalBlocker>
+#include <QSizeGrip>
 #include <QSpinBox>
 #include <QStyle>
 #include <QTimer>
@@ -31,13 +35,31 @@ QFrame* makeCard(const QString& title, QLayout* inner, QWidget* parent) {
   auto* f = new QFrame(parent);
   f->setObjectName("card");
   auto* v = new QVBoxLayout(f);
-  v->setContentsMargins(14, 10, 14, 12);
-  v->setSpacing(8);
+  v->setContentsMargins(10, 6, 10, 8);
+  v->setSpacing(4);
   auto* t = new QLabel(title, f);
   t->setObjectName("section");
   v->addWidget(t);
   v->addLayout(inner);
   return f;
+}
+
+Qt::Edges hitEdges(const QWidget* w, const QPoint& p) {
+  constexpr int m = 6;
+  Qt::Edges e;
+  if (p.x() < m) e |= Qt::LeftEdge;
+  else if (p.x() >= w->width() - m) e |= Qt::RightEdge;
+  if (p.y() < m) e |= Qt::TopEdge;
+  else if (p.y() >= w->height() - m) e |= Qt::BottomEdge;
+  return e;
+}
+
+Qt::CursorShape edgeCursor(Qt::Edges e) {
+  if ((e == (Qt::LeftEdge | Qt::TopEdge)) || (e == (Qt::RightEdge | Qt::BottomEdge))) return Qt::SizeFDiagCursor;
+  if ((e == (Qt::RightEdge | Qt::TopEdge)) || (e == (Qt::LeftEdge | Qt::BottomEdge))) return Qt::SizeBDiagCursor;
+  if (e & (Qt::LeftEdge | Qt::RightEdge)) return Qt::SizeHorCursor;
+  if (e & (Qt::TopEdge | Qt::BottomEdge)) return Qt::SizeVerCursor;
+  return Qt::ArrowCursor;
 }
 
 QString fmtDuration(int64_t us) {
@@ -50,12 +72,18 @@ QString fmtDuration(int64_t us) {
 MainPanel::MainPanel(vv::AppController& app, QWidget* parent) : QWidget(parent), app_(app) {
   setObjectName("root");
   setAttribute(Qt::WA_StyledBackground, true);
+  setMouseTracking(true);
   setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
   setWindowTitle("Voloire-video");
   setWindowIcon(trayIcon(IconState::Recording));
-  resize(600, 920);
+  setMinimumSize(420, 380);
   build();
   refreshSources();
+  QRect avail = QGuiApplication::primaryScreen() ? QGuiApplication::primaryScreen()->availableGeometry() : QRect(0, 0, 1280, 720);
+  int w = std::min(540, avail.width() - 40);
+  int h = std::min(560, avail.height() - 48);
+  resize(w, h);
+  move(avail.x() + (avail.width() - w) / 2, avail.y() + (avail.height() - h) / 2);
 
   pollTimer_ = new QTimer(this);
   connect(pollTimer_, &QTimer::timeout, this, &MainPanel::poll);
@@ -77,16 +105,16 @@ void MainPanel::build() {
 
   // Title bar
   titleBar_ = new QWidget(this);
+  titleBar_->setMouseTracking(true);
   auto* th = new QHBoxLayout(titleBar_);
-  th->setContentsMargins(18, 14, 10, 8);
-  auto* tcol = new QVBoxLayout();
+  th->setContentsMargins(12, 6, 8, 2);
+  th->setSpacing(10);
   auto* title = new QLabel("VOLOIRE//VIDEO", titleBar_);
   title->setObjectName("title");
   auto* sub = new QLabel("WINDOW + APP AUDIO RECORDER", titleBar_);
   sub->setObjectName("sub");
-  tcol->addWidget(title);
-  tcol->addWidget(sub);
-  th->addLayout(tcol, 1);
+  th->addWidget(title);
+  th->addWidget(sub, 1);
   auto* minBtn = new QPushButton(QString::fromUtf8("–"), titleBar_);
   minBtn->setObjectName("flat");
   connect(minBtn, &QPushButton::clicked, this, &QWidget::hide);
@@ -98,43 +126,52 @@ void MainPanel::build() {
   titleBar_->installEventFilter(this);
   root->addWidget(titleBar_);
 
-  auto* body = new QVBoxLayout();
-  body->setContentsMargins(16, 6, 16, 16);
-  body->setSpacing(12);
-  root->addLayout(body, 1);
+  auto* scroll = new QScrollArea(this);
+  scroll->setWidgetResizable(true);
+  scroll->setFrameShape(QFrame::NoFrame);
+  scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  auto* scrollBody = new QWidget(scroll);
+  scrollBody->setObjectName("scrollBody");
+  auto* body = new QVBoxLayout(scrollBody);
+  body->setContentsMargins(10, 4, 10, 4);
+  body->setSpacing(6);
+  scroll->setWidget(scrollBody);
+  root->addWidget(scroll, 1);
 
-  // Timer and controls
+  // Timer and controls (compact horizontal bar)
   {
     auto* box = new QVBoxLayout();
+    box->setSpacing(4);
+    auto* row = new QHBoxLayout();
+    row->setSpacing(10);
     timerLabel_ = new QLabel("00:00:00", this);
-    timerLabel_->setAlignment(Qt::AlignCenter);
+    timerLabel_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     QFont f(monoFamily());
-    f.setPixelSize(58);
+    f.setPixelSize(28);
     f.setBold(true);
     timerLabel_->setFont(f);
-    timerLabel_->setStyleSheet(QString("color:%1; font-size:58px; font-weight:700; font-family:'%2';").arg(col::dim.name(), monoFamily()));
+    timerLabel_->setStyleSheet(QString("color:%1; font-size:28px; font-weight:700; font-family:'%2';").arg(col::dim.name(), monoFamily()));
+    auto* stCol = new QVBoxLayout();
+    stCol->setSpacing(1);
     stateLabel_ = new QLabel("IDLE", this);
     stateLabel_->setObjectName("status");
-    stateLabel_->setAlignment(Qt::AlignCenter);
     infoLabel_ = new QLabel("", this);
     infoLabel_->setObjectName("sub");
-    infoLabel_->setAlignment(Qt::AlignCenter);
-    errLabel_ = new QLabel("", this);
-    errLabel_->setObjectName("err");
-    errLabel_->setAlignment(Qt::AlignCenter);
-    errLabel_->setWordWrap(true);
-    errLabel_->hide();
-    auto* btns = new QHBoxLayout();
+    stCol->addWidget(stateLabel_);
+    stCol->addWidget(infoLabel_);
     recBtn_ = new QPushButton("REC", this);
     recBtn_->setObjectName("rec");
     pauseBtn_ = new QPushButton("PAUSE", this);
-    btns->addWidget(recBtn_, 2);
-    btns->addWidget(pauseBtn_, 1);
-    box->addWidget(timerLabel_);
-    box->addWidget(stateLabel_);
-    box->addWidget(infoLabel_);
+    row->addWidget(timerLabel_);
+    row->addLayout(stCol, 1);
+    row->addWidget(recBtn_);
+    row->addWidget(pauseBtn_);
+    errLabel_ = new QLabel("", this);
+    errLabel_->setObjectName("err");
+    errLabel_->setWordWrap(true);
+    errLabel_->hide();
+    box->addLayout(row);
     box->addWidget(errLabel_);
-    box->addLayout(btns);
     body->addWidget(makeCard("RECORDER", box, this));
     connect(recBtn_, &QPushButton::clicked, this, [this] {
       if (recState() == RecState::Idle) startRecording(); else stopRecording();
@@ -145,7 +182,8 @@ void MainPanel::build() {
   // Source
   {
     auto* g = new QGridLayout();
-    g->setHorizontalSpacing(10);
+    g->setHorizontalSpacing(8);
+    g->setVerticalSpacing(4);
     rbWindow_ = new QRadioButton("Window", this);
     rbMonitor_ = new QRadioButton("Monitor", this);
     rbDxgi_ = new QRadioButton("Monitor (exclusive fullscreen)", this);
@@ -174,7 +212,8 @@ void MainPanel::build() {
   // Audio
   {
     auto* g = new QGridLayout();
-    g->setHorizontalSpacing(10);
+    g->setHorizontalSpacing(8);
+    g->setVerticalSpacing(3);
     sysCombo_ = new QComboBox(this);
     micCombo_ = new QComboBox(this);
     sysMeter_ = new LevelMeter(this);
@@ -198,8 +237,8 @@ void MainPanel::build() {
   // Output
   {
     auto* g = new QGridLayout();
-    g->setHorizontalSpacing(10);
-    g->setVerticalSpacing(8);
+    g->setHorizontalSpacing(8);
+    g->setVerticalSpacing(3);
     containerCombo_ = new QComboBox(this);
     containerCombo_->addItem("MKV (crash safe)", "mkv");
     containerCombo_->addItem("MP4", "mp4");
@@ -292,8 +331,8 @@ void MainPanel::build() {
   // Stream (YouTube): shown when the output is a stream.
   {
     auto* g = new QGridLayout();
-    g->setHorizontalSpacing(10);
-    g->setVerticalSpacing(8);
+    g->setHorizontalSpacing(8);
+    g->setVerticalSpacing(3);
     keyEdit_ = new QLineEdit(this);
     keyEdit_->setEchoMode(QLineEdit::Password);
     keyEdit_->setPlaceholderText("stream key (stored encrypted)");
@@ -327,6 +366,15 @@ void MainPanel::build() {
     });
   }
   body->addStretch(1);
+  for (auto* c : findChildren<QComboBox*>()) {
+    c->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    c->setMinimumContentsLength(6);
+  }
+  auto* gripRow = new QHBoxLayout();
+  gripRow->setContentsMargins(0, 0, 2, 2);
+  gripRow->addStretch(1);
+  gripRow->addWidget(new QSizeGrip(this), 0, Qt::AlignBottom | Qt::AlignRight);
+  root->addLayout(gripRow);
   loading_ = false;
 
   // Restore saved settings into the controls.
@@ -642,7 +690,7 @@ void MainPanel::poll() {
   recBtn_->style()->polish(recBtn_);
   pauseBtn_->setEnabled(s == RecState::Recording || s == RecState::Paused);
   pauseBtn_->setText(s == RecState::Paused ? "RESUME" : "PAUSE");
-  timerLabel_->setStyleSheet(QString("color:%1; font-size:58px; font-weight:700; font-family:'%2';")
+  timerLabel_->setStyleSheet(QString("color:%1; font-size:28px; font-weight:700; font-family:'%2';")
                                  .arg(s == RecState::Paused ? col::paused.name() : s == RecState::Idle ? col::dim.name() : col::text.name(), monoFamily()));
 
   auto m = vv::Telemetry::get().snapshot();
@@ -663,11 +711,41 @@ void MainPanel::poll() {
 }
 
 bool MainPanel::eventFilter(QObject* o, QEvent* e) {
-  if (o == titleBar_ && e->type() == QEvent::MouseButtonPress) {
-    if (auto* w = windowHandle()) w->startSystemMove();
-    return true;
+  if (o == titleBar_) {
+    if (e->type() == QEvent::MouseMove) {
+      auto* me = static_cast<QMouseEvent*>(e);
+      Qt::Edges ed = hitEdges(this, titleBar_->mapTo(this, me->pos()));
+      titleBar_->setCursor(edgeCursor(ed));
+    } else if (e->type() == QEvent::MouseButtonPress) {
+      auto* me = static_cast<QMouseEvent*>(e);
+      if (me->button() == Qt::LeftButton) {
+        Qt::Edges ed = hitEdges(this, titleBar_->mapTo(this, me->pos()));
+        if (auto* w = windowHandle()) {
+          if (ed) w->startSystemResize(ed);
+          else w->startSystemMove();
+        }
+        return true;
+      }
+    }
   }
   return QWidget::eventFilter(o, e);
+}
+
+void MainPanel::mousePressEvent(QMouseEvent* e) {
+  if (e->button() == Qt::LeftButton) {
+    Qt::Edges ed = hitEdges(this, e->pos());
+    if (ed) {
+      if (auto* w = windowHandle()) w->startSystemResize(ed);
+      e->accept();
+      return;
+    }
+  }
+  QWidget::mousePressEvent(e);
+}
+
+void MainPanel::mouseMoveEvent(QMouseEvent* e) {
+  setCursor(edgeCursor(hitEdges(this, e->pos())));
+  QWidget::mouseMoveEvent(e);
 }
 
 }  // namespace vv::ui
