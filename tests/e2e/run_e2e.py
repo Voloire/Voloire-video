@@ -510,12 +510,18 @@ def sc_ui(out):
     return rep
 
 
+def sc_harness_selftest(out):
+    from fakes import selftest
+    return selftest.run(out)
+
+
 def sc_installers(out):
     import sc_installers
     return sc_installers.run(out)
 
 
 SCENARIOS = {
+    "harness_selftest": sc_harness_selftest,
     "synthetic_basic": sc_synthetic_basic,
     "pause_resume": sc_pause_resume,
     "formats": sc_formats,

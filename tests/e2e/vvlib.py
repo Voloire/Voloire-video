@@ -150,7 +150,82 @@ class Subject:
                 self.proc.kill()
 
 
+class Gui:
+    """The Qt application under test, with its own settings dir; .c is the control pipe client."""
+
+    def __init__(self, out_dir, pipe, env_extra=None):
+        out = Path(out_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        env = {**os.environ, "VV_SETTINGS_DIR": str(out / "settings"), **(env_extra or {})}
+        self.pipe = pipe
+        self.proc = subprocess.Popen([str(GUI), "--pipe", pipe, "--show"], env=env)
+        self.c = Pipe(pipe, wait=20)
+
+    def close(self, timeout=15):
+        try:
+            self.c.call(cmd="shutdown")
+        except Exception:
+            pass
+        try:
+            self.proc.wait(timeout)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+        self.c.close()
+
+
+# ------------------------------------------------------------------ secrets
+
+def scan_for_secrets(paths_and_texts, secrets):
+    """Hits where any secret appears, each as "<where>: <secret prefix 4 chars>...".
+
+    An item that resolves to a file or directory is scanned as bytes (directories recursively);
+    anything else is treated as a text and scanned as UTF-8 bytes.
+    """
+    hits = []
+
+    def scan(where, data):
+        for s in secrets:
+            if s and s.encode("utf-8") in data:
+                hits.append(f"{where}: {s[:4]}...")
+
+    for item in paths_and_texts:
+        try:
+            p = Path(item)
+            is_dir, is_file = p.is_dir(), p.is_file()
+        except (OSError, ValueError):
+            is_dir = is_file = False
+        if is_dir:
+            for f in sorted(p.rglob("*")):
+                if f.is_file():
+                    try:
+                        scan(str(f), f.read_bytes())
+                    except OSError:
+                        pass
+        elif is_file:
+            try:
+                scan(str(p), p.read_bytes())
+            except OSError:
+                pass
+        else:
+            scan("text", str(item).encode("utf-8"))
+    return hits
+
+
 # ------------------------------------------------------------------ media
+
+def capabilities():
+    """What this ffmpeg build can do: RTMP protocols and the available encoders."""
+    protos = subprocess.run([FFMPEG, "-hide_banner", "-protocols"], capture_output=True, text=True).stdout
+    encs = subprocess.run([FFMPEG, "-hide_banner", "-encoders"], capture_output=True, text=True).stdout
+    tokens = set(protos.split())
+    encoders = []
+    for line in encs.splitlines():
+        if line.startswith(" V"):
+            parts = line.split()
+            if len(parts) >= 2 and parts[1] not in encoders:
+                encoders.append(parts[1])
+    return {"rtmp": "rtmp" in tokens, "rtmps": "rtmps" in tokens, "encoders": sorted(encoders)}
+
 
 def probe(path):
     p = subprocess.run([FFPROBE, "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)],
