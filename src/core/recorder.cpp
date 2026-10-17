@@ -7,6 +7,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include "quality.h"
 #include "telemetry.h"
 
 namespace vv {
@@ -151,7 +152,6 @@ bool Recorder::start(const RecordConfig& cfg, std::string& err) {
   ep.codec = cfg.codec;
   ep.encoder = cfg.encoder;
   ep.fps = cfg.fps;
-  ep.bitrateKbps = cfg.bitrateKbps;
   int sw = first->w & ~1, sh = first->h & ~1;
   if (cfg.outHeight > 0 && cfg.outHeight != sh) {
     ep.height = cfg.outHeight & ~1;
@@ -160,6 +160,15 @@ bool Recorder::start(const RecordConfig& cfg, std::string& err) {
     ep.width = sw;
     ep.height = sh;
   }
+  // Quality presets cap the height and resolve the bitrate once the output size is known.
+  int heightCap = presetHeightCap(cfg.quality);
+  if (heightCap > 0 && ep.height > heightCap) {
+    ep.height = heightCap;
+    ep.width = (int)std::lround((double)sw * ep.height / sh) & ~1;
+  }
+  ep.bitrateKbps = cfg.quality == "custom" ? cfg.bitrateKbps
+                                           : presetBitrateKbps(cfg.quality, ep.height, cfg.fps, cfg.codec);
+  tel.set("video.bitrate_kbps", (double)ep.bitrateKbps);
   // With both channels, the first (default) track is their mix: players play only one track,
   // and the separate SYS and MIC tracks stay for editing.
   mixIndex_ = -1;
@@ -170,7 +179,8 @@ bool Recorder::start(const RecordConfig& cfg, std::string& err) {
   mux_ = std::make_unique<Muxer>();
   if (!mux_->open(ep, e)) { mux_.reset(); return fail("encoder: " + e); }
   VV_LOG(Info, "recorder", "muxer open",
-         {{"path", path_}, {"encoder", mux_->videoEncoderName()}, {"w", ep.width}, {"h", ep.height}, {"fps", ep.fps}});
+         {{"path", path_}, {"encoder", mux_->videoEncoderName()}, {"w", ep.width}, {"h", ep.height}, {"fps", ep.fps},
+          {"bitrateKbps", ep.bitrateKbps}});
 
   if (!timerRaised_) { timeBeginPeriod(1); timerRaised_ = true; }
   {

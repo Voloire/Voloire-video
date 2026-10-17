@@ -8,6 +8,7 @@
 #include "app_controller.h"
 #include "control.h"
 #include "devices.h"
+#include "quality.h"
 #include "recorder.h"
 #include "sources.h"
 #include "telemetry.h"
@@ -107,6 +108,22 @@ TEST_CASE("Control pipe round trip") {
   CHECK(r["ok"] == true);
   CHECK(r["state"] == "idle");
   srv.stop();
+}
+
+TEST_CASE("quality presets map to bitrates") {
+  CHECK(presetBitrateKbps("standard", 1080, 60, "h264") == 12000);
+  CHECK(presetBitrateKbps("light", 720, 30, "h264") == 2600);
+  CHECK(presetBitrateKbps("high", 2160, 60, "hevc") == 70000);
+  CHECK(presetBitrateKbps("minimal", 1080, 60, "h264") == 2000);
+  CHECK(presetHeightCap("minimal") == 720);
+  CHECK(presetHeightCap("high") == 0);
+
+  RecordConfig c;
+  c.videoSource = "synthetic";
+  c.sys = "synthetic";
+  c.quality = "ultra";
+  CHECK_FALSE(c.validate().empty());
+  CHECK(c.validate().find("quality") != std::string::npos);
 }
 
 TEST_CASE("Recorder records synthetic sources, pauses and finalises") {

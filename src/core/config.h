@@ -22,6 +22,7 @@ struct RecordConfig {
   std::string container = "mkv";  // mkv | mp4
   std::string codec = "h264";     // h264 | hevc | av1
   std::string encoder = "auto";   // auto | nvenc | amf | qsv | mf
+  std::string quality = "standard";  // high | standard | light | minimal | custom
   int outHeight = 0;              // 0 keeps the source size
   int fps = 60;
   int bitrateKbps = 12000;

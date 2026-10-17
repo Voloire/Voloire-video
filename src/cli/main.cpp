@@ -24,6 +24,7 @@ void usage() {
       "  --window-title T | --window-exe E | --pid N | --hwnd N | --foreground | --monitor N | --dxgi N | --synthetic\n"
       "  --sys app|system|none|synthetic   --mic default|none|synthetic|device:<id>\n"
       "  --duration S  --out DIR  --name N  --fps N  --height N  --bitrate KBPS\n"
+      "  --quality high|standard|light|minimal (--bitrate implies custom)\n"
       "  --codec h264|hevc|av1  --container mkv|mp4  --encoder auto|nvenc|amf|qsv|mf\n"
       "  --pipe NAME (control server)  --telemetry-dir DIR  --synth-sys-hz F  --synth-mic-hz F  --verbose");
 }
@@ -98,7 +99,8 @@ int wmain(int argc, wchar_t** argv) {
     else if (k == "--name") c.name = need("--name");
     else if (k == "--fps") c.fps = std::stoi(need("--fps"));
     else if (k == "--height") c.outHeight = std::stoi(need("--height"));
-    else if (k == "--bitrate") c.bitrateKbps = std::stoi(need("--bitrate"));
+    else if (k == "--bitrate") { c.bitrateKbps = std::stoi(need("--bitrate")); c.quality = "custom"; }
+    else if (k == "--quality") c.quality = need("--quality");
     else if (k == "--codec") c.codec = need("--codec");
     else if (k == "--container") c.container = need("--container");
     else if (k == "--encoder") c.encoder = need("--encoder");

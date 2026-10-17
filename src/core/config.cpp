@@ -29,6 +29,7 @@ json RecordConfig::toJson() const {
           {"monitor", monitor},         {"sys", sys},       {"sysDevice", sysDevice},
           {"mic", mic},                 {"micDevice", micDevice},
           {"container", container},     {"codec", codec},   {"encoder", encoder},
+          {"quality", quality},
           {"outHeight", outHeight},     {"fps", fps},       {"bitrateKbps", bitrateKbps},
           {"outDir", outDir},           {"name", name},     {"synthSysHz", synthSysHz},
           {"synthMicHz", synthMicHz},   {"synthFps", synthFps},
@@ -41,6 +42,7 @@ RecordConfig RecordConfig::fromJson(const json& j) {
   get(j, "monitor", c.monitor);         get(j, "sys", c.sys);     get(j, "sysDevice", c.sysDevice);
   get(j, "mic", c.mic);                 get(j, "micDevice", c.micDevice);
   get(j, "container", c.container);     get(j, "codec", c.codec); get(j, "encoder", c.encoder);
+  get(j, "quality", c.quality);
   get(j, "outHeight", c.outHeight);     get(j, "fps", c.fps);     get(j, "bitrateKbps", c.bitrateKbps);
   get(j, "outDir", c.outDir);           get(j, "name", c.name);   get(j, "synthSysHz", c.synthSysHz);
   get(j, "synthMicHz", c.synthMicHz);   get(j, "synthFps", c.synthFps);
@@ -61,6 +63,7 @@ std::string RecordConfig::validate() const {
   if (!in(container, {"mkv", "mp4"})) return "container must be mkv|mp4";
   if (!in(codec, {"h264", "hevc", "av1"})) return "codec must be h264|hevc|av1";
   if (!in(encoder, {"auto", "nvenc", "amf", "qsv", "mf"})) return "encoder must be auto|nvenc|amf|qsv|mf";
+  if (!in(quality, {"high", "standard", "light", "minimal", "custom"})) return "quality must be high|standard|light|minimal|custom";
   if (fps < 1 || fps > 240) return "fps out of range";
   if (bitrateKbps < 100 || bitrateKbps > 200000) return "bitrate out of range";
   if (outHeight < 0 || outHeight > 4320) return "outHeight out of range";

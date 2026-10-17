@@ -140,6 +140,37 @@ def sc_synthetic_basic(out):
     return rep
 
 
+def sc_quality_presets(out):
+    rep = Report("quality_presets")
+    d = out / "quality"
+    rows = {"high": 13000, "standard": 4900, "light": 2600, "minimal": 1300}
+    sizes = {}
+    for preset, kbps in rows.items():
+        rc, res, err = run_cli(["record", "--synthetic", "--duration", 4, "--fps", 30, "--height", 720,
+                                "--encoder", "mf",  # matches CI (auto -> mf); stable bitrate relation on a static picture
+                                "--quality", preset, "--out", d / preset, "--name", "q"], timeout=90)
+        if not rep.check(f"{preset}: recorded", rc == 0 and res, f"rc={rc} {err[-160:]}"):
+            continue
+        rj = Path(res["telemetryDir"]) / "result.json"
+        m = json.loads(rj.read_text(encoding="utf-8")).get("metrics", {})
+        rep.check(f"{preset}: video.bitrate_kbps is {kbps}", m.get("video.bitrate_kbps") == kbps, m.get("video.bitrate_kbps"))
+        sizes[preset] = Path(res["path"]).stat().st_size
+        check_container(rep, res["path"], "h264", 720, 30, 3, 3.6, 4.5)
+    if len(sizes) == 4:
+        # On a near-static synthetic picture VBR spends content-driven bits far below the
+        # smallest target, so intermediate size order is not stable; only the endpoint
+        # relation high > minimal is asserted (measured stable on mf across runs).
+        rep.check("high encodes a bigger file than minimal",
+                  sizes["high"] > sizes["minimal"], sizes)
+    rc, res, err = run_cli(["record", "--synthetic", "--duration", 3, "--fps", 30, "--height", 1080, "--encoder", "mf",
+                            "--quality", "minimal", "--out", d / "cap", "--name", "cap"], timeout=90)
+    if rep.check("minimal at 1080: recorded", rc == 0 and res, f"rc={rc} {err[-160:]}"):
+        info = probe(res["path"])
+        v = streams(info, "video")[0] if info else {}
+        rep.check("minimal caps the height at 720", v.get("height") == 720, v.get("height"))
+    return rep
+
+
 def sc_pause_resume(out):
     rep = Report("pause_resume")
     d = out / "pause_resume"
@@ -523,6 +554,7 @@ def sc_installers(out):
 SCENARIOS = {
     "harness_selftest": sc_harness_selftest,
     "synthetic_basic": sc_synthetic_basic,
+    "quality_presets": sc_quality_presets,
     "pause_resume": sc_pause_resume,
     "formats": sc_formats,
     "window_app_audio": sc_window_app_audio,
