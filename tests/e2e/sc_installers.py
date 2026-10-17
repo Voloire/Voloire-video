@@ -27,6 +27,10 @@ def _arp_has(prefix):
 
 def run(out):
     rep = Report("installers")
+    if _arp_has("Voloire-video"):
+        rep.check("needs a clean machine (no Voloire-video install in Apps & features)", False,
+                  "an install already exists: this scenario installs and removes real products, so it only runs where none is present")
+        return rep
     dist = REPO / "dist"
     exes = sorted(dist.glob("voloire-video-setup-*.exe"))
     msis = sorted(dist.glob("voloire-video-*.msi"))
