@@ -28,6 +28,7 @@ void usage() {
       "  --duration S  --out DIR  --name N  --fps N  --height N  --bitrate KBPS\n"
       "  --quality high|standard|light|minimal (--bitrate implies custom)\n"
       "  --codec h264|hevc|av1  --container mkv|mp4  --encoder auto|nvenc|amf|qsv|mf\n"
+      "  --stream URL --stream-key K --stream-bitrate KBPS (RTMP output, no file is written)\n"
       "  --pipe NAME (control server)  --telemetry-dir DIR  --synth-sys-hz F  --synth-mic-hz F  --verbose");
 }
 
@@ -120,6 +121,9 @@ int wmain(int argc, wchar_t** argv) {
     else if (k == "--container") c.container = need("--container");
     else if (k == "--encoder") c.encoder = need("--encoder");
     else if (k == "--telemetry-dir") c.telemetryDir = need("--telemetry-dir");
+    else if (k == "--stream") { c.output = "stream"; c.streamUrl = need("--stream"); }
+    else if (k == "--stream-key") app.recorder().setStreamKey(need("--stream-key"));  // one-shot, never stored
+    else if (k == "--stream-bitrate") c.streamBitrateKbps = std::stoi(need("--stream-bitrate"));
     else if (k == "--synth-sys-hz") c.synthSysHz = std::stod(need("--synth-sys-hz"));
     else if (k == "--synth-mic-hz") c.synthMicHz = std::stod(need("--synth-mic-hz"));
     else if (k == "--pipe") pipe = need("--pipe");
@@ -145,7 +149,8 @@ int wmain(int argc, wchar_t** argv) {
   if (!err.empty()) { std::fprintf(stderr, "%s\n", err.c_str()); return 2; }
   app.setConfig(c);
   if (!app.recorder().start(c, err)) { std::fprintf(stderr, "start failed: %s\n", err.c_str()); return 3; }
-  std::fprintf(stderr, "recording to %s\n", app.recorder().status()["path"].get<std::string>().c_str());
+  if (c.output == "stream") std::fprintf(stderr, "streaming\n");  // the URL carries the key: never print it
+  else std::fprintf(stderr, "recording to %s\n", app.recorder().status()["path"].get<std::string>().c_str());
 
   while (!quit && app.recorder().state() != RecState::Idle) {
     if (duration > 0 && app.recorder().elapsedUs() >= (int64_t)(duration * 1e6)) break;

@@ -61,9 +61,10 @@ class Report:
 
 # ------------------------------------------------------------------ processes
 
-def run_cli(args, timeout=120):
+def run_cli(args, timeout=120, env=None):
     """Runs vvcli and returns (returncode, parsed result json or None, stderr)."""
-    p = subprocess.run([str(CLI), *map(str, args)], capture_output=True, text=True, timeout=timeout, encoding="utf-8")
+    p = subprocess.run([str(CLI), *map(str, args)], capture_output=True, text=True, timeout=timeout, encoding="utf-8",
+                       env=env)
     result = None
     for line in reversed(p.stdout.strip().splitlines()):
         try:

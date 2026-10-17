@@ -33,6 +33,8 @@ json RecordConfig::toJson() const {
           {"outHeight", outHeight},     {"fps", fps},       {"bitrateKbps", bitrateKbps},
           {"outDir", outDir},           {"name", name},     {"synthSysHz", synthSysHz},
           {"synthMicHz", synthMicHz},   {"synthFps", synthFps},
+          {"output", output},           {"streamUrl", streamUrl}, {"streamBitrateKbps", streamBitrateKbps},
+          {"streamHeight", streamHeight},
           {"telemetryDir", telemetryDir}};
 }
 
@@ -46,6 +48,8 @@ RecordConfig RecordConfig::fromJson(const json& j) {
   get(j, "outHeight", c.outHeight);     get(j, "fps", c.fps);     get(j, "bitrateKbps", c.bitrateKbps);
   get(j, "outDir", c.outDir);           get(j, "name", c.name);   get(j, "synthSysHz", c.synthSysHz);
   get(j, "synthMicHz", c.synthMicHz);   get(j, "synthFps", c.synthFps);
+  get(j, "output", c.output);           get(j, "streamUrl", c.streamUrl);
+  get(j, "streamBitrateKbps", c.streamBitrateKbps); get(j, "streamHeight", c.streamHeight);
   get(j, "telemetryDir", c.telemetryDir);
   return c;
 }
@@ -67,6 +71,13 @@ std::string RecordConfig::validate() const {
   if (fps < 1 || fps > 240) return "fps out of range";
   if (bitrateKbps < 100 || bitrateKbps > 200000) return "bitrate out of range";
   if (outHeight < 0 || outHeight > 4320) return "outHeight out of range";
+  if (!in(output, {"file", "stream"})) return "output must be file|stream";
+  if (output == "stream") {
+    if (streamUrl.rfind("rtmp://", 0) != 0 && streamUrl.rfind("rtmps://", 0) != 0)
+      return "stream URL must start with rtmp:// or rtmps://";
+    if (streamBitrateKbps < 1000 || streamBitrateKbps > 51000) return "stream bitrate out of range (1000..51000)";
+    if (streamHeight < 0 || streamHeight > 4320) return "stream height out of range";
+  }
   return {};
 }
 

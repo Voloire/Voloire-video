@@ -30,6 +30,12 @@ struct RecordConfig {
   std::string name = "recording";
   std::string telemetryDir;  // empty: <outDir>/telemetry/<base name>
 
+  // Output destination: a local file, or an RTMP stream (the key is NOT part of the config).
+  std::string output = "file";   // file | stream
+  std::string streamUrl = "rtmp://a.rtmp.youtube.com/live2";  // ingest base, YouTube by default
+  int streamBitrateKbps = 6000;  // 1000..51000
+  int streamHeight = 1080;       // 0 keeps the source size
+
   // Synthetic sources (test harness)
   double synthSysHz = 440.0;
   double synthMicHz = 1000.0;

@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include "redact.h"
 
 namespace vv {
 
@@ -52,13 +53,18 @@ void Telemetry::samplerLoop() {
 }
 
 void Telemetry::log(Level lvl, const std::string& component, const std::string& msg, const json& extra) {
-  json e = {{"t_us", nowUs()}, {"level", levelName(lvl)}, {"component", component}, {"msg", msg}};
-  if (!extra.empty()) e["data"] = extra;
+  // Stream keys are passwords: mask them before anything is written or kept in the ring.
+  json e = {{"t_us", nowUs()}, {"level", levelName(lvl)}, {"component", component}, {"msg", redactUrl(msg)}};
+  if (!extra.empty()) {
+    json data = redactJson(extra);
+    redactUrls(data);
+    e["data"] = data;
+  }
   std::lock_guard lk(mu_);
   if (events_.is_open()) events_ << e.dump() << '\n' << std::flush;
   ring_.push_back(e);
   if (ring_.size() > 2000) ring_.pop_front();
-  if (echo_) std::fprintf(stderr, "[%s] %s: %s\n", levelName(lvl), component.c_str(), msg.c_str());
+  if (echo_) std::fprintf(stderr, "[%s] %s: %s\n", levelName(lvl), component.c_str(), e["msg"].get<std::string>().c_str());
 }
 
 void Telemetry::inc(const std::string& name, double by) {

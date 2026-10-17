@@ -20,6 +20,9 @@ struct EncoderParams {
   int audioKbps = 160;
   bool faststart = false;  // MP4 only: moov before mdat instead of fragmented flags
   std::vector<std::string> audioTracks;  // names, e.g. {"SYS", "MIC"}
+  bool asyncWrite = false;  // network: packets queue to a writer thread, capture never blocks
+  int maxQueueMs = 3000;    // queued video older than this is dropped up to the next keyframe
+  int64_t startPtsUs = 0;   // timeline offset of the first audio sample (stream reconnects)
 };
 
 // FFmpeg muxer: one video stream plus one AAC stream per named track. Thread-safe for one
@@ -39,6 +42,9 @@ class Muxer {
   uint64_t bytesWritten() const;
   int width() const;
   int height() const;
+  bool failed() const;          // a write failed or the peer stalled past the deadline
+  double queuedMs() const;      // video buffered ahead of the network, in ms
+  uint64_t droppedPackets() const;
 
  private:
   struct Impl;

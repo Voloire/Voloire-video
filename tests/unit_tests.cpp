@@ -2,7 +2,9 @@
 #include <windows.h>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <thread>
 #include "doctest.h"
 #include "app_controller.h"
@@ -10,6 +12,8 @@
 #include "devices.h"
 #include "quality.h"
 #include "recorder.h"
+#include "redact.h"
+#include "secrets.h"
 #include "share_copy.h"
 #include "sources.h"
 #include "telemetry.h"
@@ -159,6 +163,76 @@ TEST_CASE("Recorder records synthetic sources, pauses and finalises") {
   CHECK(r.durationSec < 3.2);
   CHECK(r.videoFrames > 50);
   CHECK(fs::exists(dir / "telemetry" / "result.json"));
+}
+
+TEST_CASE("redaction hides stream keys, in json and in key URLs") {
+  json j = {{"streamKey", "abc"}, {"x", {{"key", "r"}, {"z", 1}}}};
+  json r = redactJson(j);
+  CHECK(r["streamKey"] == "***");
+  CHECK(r["x"]["key"] == "***");
+  CHECK(r["x"]["z"] == 1);
+
+  json c = {{"Key", "x"}, {"STREAMKEY", "y"}, {"monkey", "keep"}};
+  json rc = redactJson(c);
+  CHECK(rc["Key"] == "***");        // case-insensitive
+  CHECK(rc["STREAMKEY"] == "***");
+  CHECK(rc["monkey"] == "keep");    // exact name only
+
+  CHECK(redactUrl("rtmp://a.rtmp.youtube.com/live2/abcd-efgh") == "rtmp://a.rtmp.youtube.com/live2/***");
+  CHECK(redactUrl("rtmps://a.rtmp.youtube.com/live2/abcd-efgh") == "rtmps://a.rtmp.youtube.com/live2/***");
+  CHECK(redactUrl("rtmp://127.0.0.1:1935/live2") == "rtmp://127.0.0.1:1935/live2");  // no key part
+  CHECK(redactUrl("no url here") == "no url here");
+  json d = {{"target", "rtmp://h/app/key123"}, {"other", 5}};
+  redactUrls(d);
+  CHECK(d["target"] == "rtmp://h/app/***");
+  CHECK(d["other"] == 5);
+}
+
+TEST_CASE("stream secrets round trip through DPAPI and stay unreadable on disk") {
+  auto dir = tempDir("secrets");
+  std::wstring env = L"VV_SETTINGS_DIR=" + wide(strOf(dir));
+  _wputenv(env.c_str());  // the CRT environment is what settingsPath() reads
+  deleteSecret("stream_key");
+  CHECK(loadSecret("stream_key").empty());
+  CHECK(loadSecret("missing").empty());
+
+  const std::string key = "sk-live-abcd-1234-efgh";
+  CHECK(saveSecret("stream_key", key));
+  CHECK(loadSecret("stream_key") == key);
+
+  auto f = dir / "secrets" / "stream_key.bin";
+  REQUIRE(fs::exists(f));
+  {
+    std::ifstream in(f, std::ios::binary);
+    std::string raw((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    CHECK(raw.find(key) == std::string::npos);  // DPAPI ciphertext, never the plaintext
+  }  // closed before delete: Windows refuses to remove an open file
+
+  deleteSecret("stream_key");
+  CHECK(loadSecret("stream_key").empty());
+}
+
+TEST_CASE("stream output validates its URL, bitrate and height") {
+  RecordConfig c;
+  c.videoSource = "synthetic";
+  c.sys = "synthetic";
+  c.mic = "synthetic";
+  c.output = "stream";
+  c.streamUrl = "rtmp://127.0.0.1:1935/live2";
+  c.streamBitrateKbps = 6000;
+  CHECK(c.validate().empty());
+
+  c.streamBitrateKbps = 60000;
+  std::string e = c.validate();
+  CHECK_FALSE(e.empty());
+  CHECK(e.find("stream") != std::string::npos);
+
+  c.streamBitrateKbps = 6000;
+  c.streamUrl.clear();
+  CHECK_FALSE(c.validate().empty());
+  c.streamUrl = "rtmp://127.0.0.1:1935/live2";
+  c.output = "network";
+  CHECK_FALSE(c.validate().empty());
 }
 
 TEST_CASE("planShare fits the target") {

@@ -805,6 +805,255 @@ def sc_harness_selftest(out):
     return selftest.run(out)
 
 
+# ------------------------------------------------------------------ streaming
+
+def _last_json_line(text):
+    for line in reversed((text or "").strip().splitlines()):
+        try:
+            return json.loads(line)
+        except ValueError:
+            continue
+    return None
+
+
+def _wait_stream_state(c, want, timeout):
+    end = time.time() + timeout
+    while time.time() < end:
+        try:
+            if (c.call(cmd="status").get("stream") or {}).get("state") == want:
+                return True
+        except (EOFError, OSError):
+            return False
+        time.sleep(0.3)
+    return False
+
+
+def _wait_reconnects(c, n, timeout):
+    end = time.time() + timeout
+    while time.time() < end:
+        try:
+            if int((c.call(cmd="status").get("stream") or {}).get("reconnects", 0)) >= n:
+                return True
+        except (EOFError, OSError):
+            return False
+        time.sleep(0.3)
+    return False
+
+
+def sc_stream_rtmp(out):
+    rep = Report("stream_rtmp")
+    d = out / "stream_rtmp"
+    d.mkdir(parents=True, exist_ok=True)
+    from fakes.rtmp_ingest import RtmpIngest
+    if not rep.check("ffmpeg build has the rtmp protocol", capabilities()["rtmp"]):
+        return rep
+    key = "sk-live-rtmp-abcd1234"
+    ing = RtmpIngest(d, key=key)
+    ing.start()
+    p = None
+    try:
+        p = popen_cli(["record", "--synthetic", "--mic", "none", "--stream", ing.url, "--stream-key", key,
+                       "--duration", 10, "--fps", 30, "--out", d / "out", "--pipe", "vv-e2e-stream"],
+                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        c = Pipe("vv-e2e-stream")
+        rep.check("ingest: connection received", ing.wait_connected(20))
+        time.sleep(3)
+        s = c.call(cmd="status")
+        st = s.get("stream") or {}
+        rep.check("status: output is stream", s.get("output") == "stream", s.get("output"))
+        rep.check("status: stream state live", st.get("state") == "live", st.get("state"))
+        rep.check("status: kbps reported while live", float(st.get("kbps", 0)) > 0, st.get("kbps"))
+        status_dump = json.dumps(s)
+        logs_dump = json.dumps(c.call(cmd="logs", n=500))
+        stdout, stderr = p.communicate(timeout=60)
+        rep.check("exit code 0", p.returncode == 0, f"rc={p.returncode} {stderr[-200:]}")
+        res = _last_json_line(stdout) or {}
+        rep.check("no file is written", res.get("path", "") == "", res.get("path"))
+        rep.check("bytes sent are counted", res.get("bytes", 0) > 0, res.get("bytes"))
+        rj = Path(str(res.get("telemetryDir", ""))) / "result.json"
+        metrics = json.loads(rj.read_text(encoding="utf-8"))["metrics"] if rj.exists() else {}
+        kbps = metrics.get("stream.kbps", 0)
+        rep.check("metric stream.kbps within 300..7800", 300 <= kbps <= 7800, kbps)
+        ing.stop()
+        if rep.check("ingest: received file written", ing.received.exists()):
+            info = probe(ing.received)
+            if rep.check("ingest: probes", info is not None):
+                v, a = streams(info, "video"), streams(info, "audio")
+                rep.check("1 H.264 video at 30 fps",
+                          len(v) == 1 and v[0]["codec_name"] == "h264" and abs(fps_of(v[0]) - 30) < 0.5,
+                          (v[0]["codec_name"], v[0]["r_frame_rate"]) if v else "no video")
+                rep.check("exactly 1 audio stream", len(a) == 1, len(a))
+                dur = float(info["format"]["duration"])
+                rep.check("duration within 9..11 s", 9 <= dur <= 11, f"{dur:.2f}")
+            ok, why = decodes_clean(ing.received)
+            rep.check("ingest: decodes clean", ok, why)
+            check_sync_and_tones(rep, ing.received, expect_flashes=(8, 11), tol_ms=150, check_mic_tone=False,
+                                 isolation=False)
+        hits = scan_for_secrets([Path(str(res.get("telemetryDir", ""))), status_dump, logs_dump], [key])
+        rep.check("no key leak in telemetry or the pipe replies", not hits, hits)
+    finally:
+        ing.stop()
+        if p is not None and p.poll() is None:
+            p.kill()
+    return rep
+
+
+def sc_stream_stored_key(out):
+    rep = Report("stream_stored_key")
+    d = out / "stream_stored_key"
+    d.mkdir(parents=True, exist_ok=True)
+    from fakes.rtmp_ingest import RtmpIngest
+    key = "sk-live-stored-wxyz9876"
+    settings = d / "settings"
+    gui = Gui(d, "vv-e2e-keygui")
+    try:
+        c = gui.c
+        r = c.call(cmd="set_stream_key", key=key)
+        rep.check("set_stream_key: stored", r.get("ok") is True and r.get("streamKeySet") is True, r)
+        rep.check("set_stream_key: the key is not echoed back", key not in json.dumps(r))
+        g = c.call(cmd="get_config")
+        rep.check("get_config: streamKeySet true", g["config"].get("streamKeySet") is True,
+                  g["config"].get("streamKeySet"))
+        rep.check("get_config: the key is not echoed back", key not in json.dumps(g))
+        blob = settings / "secrets" / "stream_key.bin"
+        rep.check("secret file exists", blob.exists())
+        rep.check("secret file holds no plaintext", blob.exists() and key.encode() not in blob.read_bytes())
+        rep.check("settings dir holds no plaintext anywhere", not scan_for_secrets([settings], [key]))
+        r = c.call(cmd="set_stream_key", key="")
+        rep.check("clearing the key flips the flag", r.get("streamKeySet") is False, r)
+        rep.check("cleared secret file is gone", not blob.exists())
+    finally:
+        gui.close()
+    ing = RtmpIngest(d, key=key)
+    ing.start()
+    try:
+        env = {**os.environ, "VV_SETTINGS_DIR": str(settings)}
+        rc, res, err = run_cli(["record", "--synthetic", "--stream", ing.url, "--duration", 3], env=env, timeout=60)
+        rep.check("no stored key: exit 3", rc == 3, f"rc={rc} {err.strip()[-150:]}")
+        rep.check('no stored key: error starts with "no stream key"', "no stream key" in err, err.strip()[-150:])
+        rep.check("no stored key: no connection is ever made", not ing.wait_connected(6))
+    finally:
+        ing.stop()
+    return rep
+
+
+def sc_stream_reconnect(out):
+    rep = Report("stream_reconnect")
+    d = out / "stream_reconnect"
+    d.mkdir(parents=True, exist_ok=True)
+    from fakes.rtmp_ingest import RtmpIngest
+    key = "sk-live-recon-mnop4321"
+    ing = RtmpIngest(d, key=key)
+    ing.start()
+    p = None
+    try:
+        p = popen_cli(["record", "--synthetic", "--mic", "none", "--stream", ing.url, "--stream-key", key,
+                       "--duration", 14, "--fps", 30, "--out", d / "out", "--pipe", "vv-e2e-reconnect"],
+                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        c = Pipe("vv-e2e-reconnect")
+        rep.check("ingest: first connection received", ing.wait_connected(20))
+        rep.check("stream: live", _wait_stream_state(c, "live", 15))
+        time.sleep(4)
+        ing.kill()
+        time.sleep(1.5)
+        ing2 = RtmpIngest(d, port=ing.port, key=key)
+        ing2.start()
+        rep.check("stream.reconnects reaches 1", _wait_reconnects(c, 1, 45))
+        stdout, stderr = p.communicate(timeout=60)
+        rep.check("exit code 0", p.returncode == 0, f"rc={p.returncode} {stderr[-200:]}")
+        res = _last_json_line(stdout) or {}
+        tdir = Path(str(res.get("telemetryDir", "")))
+        ing2.stop()
+        if rep.check("ingest 2: received file written", ing2.received.exists()):
+            info = probe(ing2.received)
+            if rep.check("ingest 2: probes", info is not None):
+                dur = float(info["format"]["duration"])
+                rep.check("ingest 2: duration >= 3 s", dur >= 3, f"{dur:.2f}")
+            ok, why = decodes_clean(ing2.received)
+            rep.check("ingest 2: decodes clean", ok, why)
+        ev = tdir / "events.jsonl"
+        text = ev.read_text(encoding="utf-8", errors="replace") if ev.exists() else ""
+        i = text.rfind("stream: reconnecting")
+        j = text.find("stream: live", i + 1) if i >= 0 else -1
+        rep.check("events: reconnecting then live", i >= 0 and j > i)
+    finally:
+        ing.kill()
+        if p is not None and p.poll() is None:
+            p.kill()
+    return rep
+
+
+def sc_stream_stall(out):
+    rep = Report("stream_stall")
+    d = out / "stream_stall"
+    d.mkdir(parents=True, exist_ok=True)
+    from fakes.rtmp_ingest import RtmpIngest
+    key = "sk-live-stall-qrst5678"
+    ing = RtmpIngest(d, key=key)
+    ing.start()
+    p = None
+    duration = 24
+    t0 = time.time()
+    try:
+        p = popen_cli(["record", "--synthetic", "--mic", "none", "--stream", ing.url, "--stream-key", key,
+                       "--duration", duration, "--fps", 30, "--out", d / "out", "--pipe", "vv-e2e-stall"],
+                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        c = Pipe("vv-e2e-stall")
+        rep.check("ingest: connection received", ing.wait_connected(20))
+        rep.check("stream: live", _wait_stream_state(c, "live", 15))
+        time.sleep(3)
+        ing.freeze()  # the listener stops reading: TCP stays up, nothing flows
+        frozen = time.time()
+        became = False
+        while time.time() < frozen + 8:
+            st = c.call(cmd="status").get("stream") or {}
+            if st.get("state") == "reconnecting":
+                became = True
+                break
+            time.sleep(0.4)
+        rep.check("stall: state is reconnecting within 8 s", became)
+        dropped = c.call(cmd="status")["metrics"].get("video.dropped_ticks", 0)
+        rep.check("stall: video.dropped_ticks <= 2", dropped <= 2, dropped)
+        time.sleep(1.5)
+        ing.thaw()
+        ing.kill()
+        ing2 = RtmpIngest(d, port=ing.port, key=key)
+        ing2.start()
+        stdout, stderr = p.communicate(timeout=duration + 20)
+        wall = time.time() - t0
+        rep.check("stall: never hangs (wall < duration + 20 s)", wall < duration + 20, f"{wall:.1f} s")
+        rep.check("stall: ends with exit 0 or 4", p.returncode in (0, 4), f"rc={p.returncode} {stderr[-200:]}")
+        res = _last_json_line(stdout) or {}
+        if p.returncode == 4:
+            rep.check("stall: a lost stream carries a non-empty error", bool(res.get("error")), res.get("error"))
+        ing2.stop()
+    finally:
+        ing.kill()
+        if p is not None and p.poll() is None:
+            p.kill()
+    return rep
+
+
+def sc_stream_unreachable(out):
+    rep = Report("stream_unreachable")
+    d = out / "stream_unreachable"
+    d.mkdir(parents=True, exist_ok=True)
+    from fakes.blackhole import Blackhole
+    bh = Blackhole()
+    key = "sk-live-blackhole-1234"
+    try:
+        t0 = time.time()
+        rc, res, err = run_cli(["record", "--synthetic", "--stream", bh.url, "--stream-key", key,
+                                "--duration", 5, "--out", d], timeout=60)
+        took = time.time() - t0
+        rep.check("fails in under 10 s", took < 10, f"{took:.1f} s")
+        rep.check("exit code 3", rc == 3, f"rc={rc} {err.strip()[-150:]}")
+        rep.check('error mentions "stream"', "stream" in err, err.strip()[-150:])
+    finally:
+        bh.stop()
+    return rep
+
+
 def sc_installers(out):
     import sc_installers
     return sc_installers.run(out)
@@ -815,6 +1064,11 @@ SCENARIOS = {
     "synthetic_basic": sc_synthetic_basic,
     "quality_presets": sc_quality_presets,
     "share_copy": sc_share_copy,
+    "stream_rtmp": sc_stream_rtmp,
+    "stream_stored_key": sc_stream_stored_key,
+    "stream_reconnect": sc_stream_reconnect,
+    "stream_stall": sc_stream_stall,
+    "stream_unreachable": sc_stream_unreachable,
     "pause_resume": sc_pause_resume,
     "formats": sc_formats,
     "window_app_audio": sc_window_app_audio,

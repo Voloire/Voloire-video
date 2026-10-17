@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <filesystem>
 #include "devices.h"
+#include "secrets.h"
 #include "telemetry.h"
 
 namespace vv {
@@ -81,7 +82,17 @@ json AppController::handle(const json& req) {
   }
   if (cmd == "metrics") return {{"ok", true}, {"metrics", Telemetry::get().snapshot()}};
   if (cmd == "logs") return {{"ok", true}, {"logs", Telemetry::get().tailLogs(req.value("n", 100))}};
-  if (cmd == "get_config") return {{"ok", true}, {"config", config().toJson()}};
+  if (cmd == "get_config") {
+    json c = config().toJson();
+    c["streamKeySet"] = !loadSecret("stream_key").empty();  // the key itself never leaves the machine
+    return {{"ok", true}, {"config", c}};
+  }
+  if (cmd == "set_stream_key") {
+    std::string k = req.value("key", std::string());
+    if (k.empty()) deleteSecret("stream_key");
+    else if (!saveSecret("stream_key", k)) return err("cannot store the stream key");
+    return {{"ok", true}, {"streamKeySet", !k.empty()}};
+  }
   if (cmd == "set_config") {
     json merged = config().toJson();
     merged.update(req.value("config", json::object()), true);
