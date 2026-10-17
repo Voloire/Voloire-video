@@ -13,6 +13,7 @@
 #include <QPainter>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QStyle>
 #include <QTimer>
@@ -53,7 +54,7 @@ MainPanel::MainPanel(vv::AppController& app, QWidget* parent) : QWidget(parent),
   setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
   setWindowTitle("Voloire-video");
   setWindowIcon(trayIcon(IconState::Recording));
-  resize(600, 860);
+  resize(600, 920);
   build();
   refreshSources();
 
@@ -225,6 +226,15 @@ void MainPanel::build() {
     bitrate_->setSingleStep(1000);
     bitrate_->setValue(12000);
     bitrate_->setSuffix(" kbps");
+    qualityCombo_ = new QComboBox(this);
+    qualityCombo_->addItem("High", "high");
+    qualityCombo_->addItem("Standard", "standard");
+    qualityCombo_->addItem("Light", "light");
+    qualityCombo_->addItem("Minimal", "minimal");
+    qualityCombo_->addItem("Custom", "custom");
+    shareCombo_ = new QComboBox(this);
+    shareCombo_->addItem("Off", 0);
+    for (int mb : {10, 25, 50, 100}) shareCombo_->addItem(QString("%1 MB").arg(mb), mb);
     dirEdit_ = new QLineEdit(QString::fromStdString(app_.config().outDir), this);
     auto* browse = new QPushButton("...", this);
     auto* open = new QPushButton("OPEN", this);
@@ -241,16 +251,29 @@ void MainPanel::build() {
     g->addWidget(fpsCombo_, 3, 1);
     g->addWidget(lab("BITRATE"), 2, 2);
     g->addWidget(bitrate_, 3, 2);
+    g->addWidget(lab("QUALITY"), 4, 0);
+    g->addWidget(qualityCombo_, 5, 0);
+    g->addWidget(lab("SHARE COPY"), 4, 1);
+    g->addWidget(shareCombo_, 5, 1);
     auto* dir = new QHBoxLayout();
     dir->addWidget(dirEdit_, 1);
     dir->addWidget(browse);
     dir->addWidget(open);
-    g->addWidget(lab("OUTPUT FOLDER"), 4, 0, 1, 3);
-    g->addLayout(dir, 5, 0, 1, 3);
+    g->addWidget(lab("OUTPUT FOLDER"), 6, 0, 1, 3);
+    g->addLayout(dir, 7, 0, 1, 3);
     body->addWidget(makeCard("OUTPUT", g, this));
-    for (auto* c : {containerCombo_, codecCombo_, encoderCombo_, resCombo_, fpsCombo_})
+    for (auto* c : {containerCombo_, codecCombo_, encoderCombo_, resCombo_, fpsCombo_, qualityCombo_})
       connect(c, &QComboBox::currentIndexChanged, this, [this] { persist(); });
-    connect(bitrate_, &QSpinBox::valueChanged, this, [this] { persist(); });
+    connect(shareCombo_, &QComboBox::currentIndexChanged, this, [this] { setShareTarget(shareCombo_->currentData().toInt()); });
+    connect(bitrate_, &QSpinBox::valueChanged, this, [this] {
+      if (loading_) return;
+      int i = qualityCombo_->findData("custom");  // a hand-typed bitrate means the preset no longer applies
+      if (i >= 0 && qualityCombo_->currentIndex() != i) {
+        QSignalBlocker b(qualityCombo_);
+        qualityCombo_->setCurrentIndex(i);
+      }
+      persist();
+    });
     connect(dirEdit_, &QLineEdit::editingFinished, this, [this] { persist(); });
     connect(browse, &QPushButton::clicked, this, [this] {
       QString d = QFileDialog::getExistingDirectory(this, "Output folder", dirEdit_->text());
@@ -270,6 +293,7 @@ void MainPanel::build() {
   pick(encoderCombo_, QString::fromStdString(s.encoder));
   pick(resCombo_, s.outHeight);
   pick(fpsCombo_, s.fps);
+  pick(qualityCombo_, QString::fromStdString(s.quality));
   bitrate_->setValue(s.bitrateKbps);
   dirEdit_->setText(QString::fromStdString(s.outDir));
   if (s.videoSource == "monitor") rbMonitor_->setChecked(true);
@@ -352,6 +376,7 @@ vv::RecordConfig MainPanel::currentConfig() const {
   c.encoder = encoderCombo_->currentData().toString().toStdString();
   c.outHeight = resCombo_->currentData().toInt();
   c.fps = fpsCombo_->currentData().toInt();
+  c.quality = qualityCombo_->currentData().toString().toStdString();
   c.bitrateKbps = bitrate_->value();
   c.outDir = dirEdit_->text().toStdString();
   if (!override_.empty()) {
@@ -390,6 +415,57 @@ void MainPanel::setHeight(int h) { int i = resCombo_->findData(h); if (i >= 0) r
 void MainPanel::setFps(int f) { int i = fpsCombo_->findData(f); if (i >= 0) fpsCombo_->setCurrentIndex(i); }
 void MainPanel::setMic(const QString& mode, const QString& id) { int i = micCombo_->findData(mode + "|" + id); if (i >= 0) micCombo_->setCurrentIndex(i); }
 void MainPanel::setSys(const QString& mode, const QString& id) { int i = sysCombo_->findData(mode + "|" + id); if (i >= 0) sysCombo_->setCurrentIndex(i); }
+void MainPanel::setQuality(const QString& v) { int i = qualityCombo_->findData(v); if (i >= 0) qualityCombo_->setCurrentIndex(i); }
+
+void MainPanel::setPrefs(vv::UiPrefs* p) {
+  prefs_ = p;
+  if (shareCombo_ && prefs_) {
+    int i = shareCombo_->findData(prefs_->shareTargetMB);
+    if (i >= 0 && shareCombo_->currentIndex() != i) {
+      QSignalBlocker b(shareCombo_);
+      shareCombo_->setCurrentIndex(i);
+    }
+  }
+}
+
+void MainPanel::setShareTarget(int mb) {
+  if (prefs_) {
+    prefs_->shareTargetMB = mb;
+    vv::saveUiPrefs(*prefs_);
+  }
+  if (shareCombo_) {
+    int i = shareCombo_->findData(mb);
+    if (i >= 0 && shareCombo_->currentIndex() != i) {
+      QSignalBlocker b(shareCombo_);
+      shareCombo_->setCurrentIndex(i);
+    }
+  }
+  emit changed();
+}
+
+void MainPanel::setShareToClipboard(bool on) {
+  if (prefs_) {
+    prefs_->shareToClipboard = on;
+    vv::saveUiPrefs(*prefs_);
+  }
+  emit changed();
+}
+
+void MainPanel::shareLastRecording() {
+  if (lastRecording_.isEmpty()) return;
+  startShare(lastRecording_, shareTargetMB() > 0 ? shareTargetMB() : 25);
+}
+
+void MainPanel::startShare(const QString& path, int mb) {
+  vv::json r = app_.handle({{"cmd", "share"}, {"path", path.toStdString()}, {"targetMB", mb}});
+  if (!r.value("ok", false)) showError(QString::fromStdString(r.value("error", std::string("share copy did not start"))));
+  emit changed();
+}
+
+vv::json MainPanel::shareStatus() {
+  vv::json r = app_.handle({{"cmd", "share_status"}});
+  return r.contains("share") ? r["share"] : vv::json::object();
+}
 
 void MainPanel::useActiveNow() {
   if (lastForeground_.hwnd) {
@@ -457,6 +533,10 @@ void MainPanel::stopRecording() {
     vv::RecResult r = app_.recorder().stop();
     QMetaObject::invokeMethod(this, [this, r] {
       if (!r.error.empty()) showError(QString::fromStdString(r.error));
+      else if (!r.path.empty()) {
+        lastRecording_ = QString::fromStdString(r.path);
+        if (shareTargetMB() > 0) startShare(lastRecording_, shareTargetMB());  // Share copy > N MB
+      }
       emit changed();
     }, Qt::QueuedConnection);
   }).detach();
@@ -498,7 +578,7 @@ void MainPanel::poll() {
       showError(QString::fromStdString(app_.recorder().lastError()));
     emit changed();
   }
-  for (auto* w : {sysCombo_, micCombo_, containerCombo_, codecCombo_, encoderCombo_, resCombo_, fpsCombo_, winCombo_, monCombo_})
+  for (auto* w : {sysCombo_, micCombo_, containerCombo_, codecCombo_, encoderCombo_, resCombo_, fpsCombo_, qualityCombo_, shareCombo_, winCombo_, monCombo_})
     w->setEnabled(s == RecState::Idle && !starting_);
 }
 

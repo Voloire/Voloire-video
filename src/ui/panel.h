@@ -26,6 +26,7 @@ class MainPanel : public QWidget {
 
   vv::RecordConfig currentConfig() const;
   void setOverride(const vv::json& j) { override_ = j; emit changed(); }  // test hook: force config fields
+  void setPrefs(vv::UiPrefs* p);  // shared with the status bar: one source of truth for ui.json
 
   void refreshSources();
   void selectWindow(qint64 hwnd);   // 0 = follow the active window
@@ -34,8 +35,18 @@ class MainPanel : public QWidget {
   void setCodec(const QString& v);
   void setHeight(int h);
   void setFps(int fps);
+  void setQuality(const QString& v);  // high | standard | light | minimal | custom
   void setMic(const QString& mode, const QString& id = {});   // default | device | none
   void setSys(const QString& mode, const QString& id = {});   // app | system | none
+
+  // Share copy of the last recording: the target size and the clipboard live in ui.json.
+  void setShareTarget(int mb);   // 0 = off
+  void setShareToClipboard(bool on);
+  void shareLastRecording();
+  int shareTargetMB() const { return prefs_ ? prefs_->shareTargetMB : 0; }
+  bool shareToClipboard() const { return prefs_ && prefs_->shareToClipboard; }
+  QString lastRecording() const { return lastRecording_; }
+  vv::json shareStatus();
 
   void startRecording();
   void stopRecording();
@@ -70,6 +81,7 @@ class MainPanel : public QWidget {
   void persist();
   void useActiveNow();
   void showError(const QString& m);
+  void startShare(const QString& path, int mb);
   vv::WindowInfo findWindow(qint64 hwnd) const;
 
   vv::AppController& app_;
@@ -78,14 +90,16 @@ class MainPanel : public QWidget {
   std::vector<vv::MonitorInfo> monitors_;
   vv::WindowInfo lastForeground_;
   QString error_;
+  QString lastRecording_;      // path of the last finished recording, for "Make share copy"
   vv::json override_ = vv::json::object();
+  vv::UiPrefs* prefs_ = nullptr;  // owned by main: tray and status bar read the same ui.json
   bool starting_ = false;
   bool loading_ = false;
   std::thread startTh_;
 
   QRadioButton *rbWindow_, *rbMonitor_, *rbDxgi_;
   QComboBox *winCombo_, *monCombo_, *sysCombo_, *micCombo_, *containerCombo_, *codecCombo_, *encoderCombo_, *resCombo_,
-      *fpsCombo_;
+      *fpsCombo_, *qualityCombo_, *shareCombo_;
   QSpinBox* bitrate_;
   QLineEdit* dirEdit_;
   LevelMeter *sysMeter_, *micMeter_;

@@ -5,6 +5,7 @@
 #include <QPainter>
 #include <QScreen>
 #include <QTimer>
+#include <cmath>
 #include <windows.h>
 #include "control_menu.h"
 #include "panel.h"
@@ -45,8 +46,14 @@ std::string HudBar::dotName() const {
 }
 
 void HudBar::refreshContent() {
-  QString label = QString(vv::stateName(panel_->recState())).toUpper();
-  if (panel_->recState() == vv::RecState::Idle && !panel_->errorText().isEmpty()) label = "ERROR";
+  QString label;
+  vv::json sh = panel_->shareStatus();
+  if (sh.value("state", std::string("idle")) == "running") {
+    label = QString("SHARE %1%").arg((int)std::lround(sh.value("progress", 0.0) * 100));
+  } else {
+    label = QString(vv::stateName(panel_->recState())).toUpper();
+    if (panel_->recState() == vv::RecState::Idle && !panel_->errorText().isEmpty()) label = "ERROR";
+  }
   label_ = label;
   QFont f(monoFamily());
   f.setPixelSize(12);

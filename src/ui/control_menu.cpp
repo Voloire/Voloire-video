@@ -94,19 +94,20 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
     QObject::connect(r, &QAction::triggered, &menu, [p] { p->refreshSources(); });
   }
 
+  vv::RecordConfig c = panel.currentConfig();
+
+  auto radio = [&](QMenu* sub, const QString& text, bool checked, std::function<void()> fn) {
+    QAction* a = sub->addAction(text);
+    a->setCheckable(true);
+    a->setChecked(checked);
+    QObject::connect(a, &QAction::triggered, &menu, [fn] { fn(); });
+    return a;
+  };
+
   // Format
   QMenu* fmt = menu.addMenu("Format");
   fmt->setEnabled(idle);
   {
-    auto radio = [&](QMenu* sub, const QString& text, bool checked, std::function<void()> fn) {
-      QAction* a = sub->addAction(text);
-      a->setCheckable(true);
-      a->setChecked(checked);
-      if (!sub->property("grp").isValid()) sub->setProperty("grp", true);
-      QObject::connect(a, &QAction::triggered, &menu, [fn] { fn(); });
-      return a;
-    };
-    vv::RecordConfig c = panel.currentConfig();
     QMenu* cont = fmt->addMenu("Container");
     auto* g1 = new QActionGroup(cont);
     for (auto tv : {std::pair{"MKV (crash safe)", "mkv"}, std::pair{"MP4", "mp4"}}) {
@@ -128,6 +129,45 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
     auto* g4 = new QActionGroup(fps);
     for (int f : {24, 30, 60, 120})
       g4->addAction(radio(fps, QString("%1 fps").arg(f), c.fps == f, [p, f] { p->setFps(f); }));
+  }
+
+  // Quality: the presets that resolve the bitrate, plus a disabled mirror of a hand-typed one.
+  QMenu* qual = menu.addMenu("Quality");
+  qual->setEnabled(idle);
+  {
+    auto* grp = new QActionGroup(qual);
+    for (auto tv : {std::pair{"High", "high"}, std::pair{"Standard", "standard"}, std::pair{"Light", "light"},
+                     std::pair{"Minimal", "minimal"}}) {
+      QString v = tv.second;
+      grp->addAction(radio(qual, tv.first, c.quality == tv.second, [p, v] { p->setQuality(v); }));
+    }
+    QAction* custom = qual->addAction(QString("Custom (%1 kbps)").arg(c.bitrateKbps));
+    custom->setCheckable(true);
+    custom->setChecked(c.quality == "custom");
+    custom->setEnabled(false);
+  }
+
+  // Share copy: the size cap for the copy of the finished recording.
+  QMenu* shr = menu.addMenu("Share copy");
+  shr->setEnabled(idle);
+  {
+    auto* grp = new QActionGroup(shr);
+    for (int mb : {0, 10, 25, 50, 100}) {
+      QAction* a = shr->addAction(mb ? QString("%1 MB").arg(mb) : QString("Off"));
+      a->setCheckable(true);
+      a->setChecked(panel.shareTargetMB() == mb);
+      grp->addAction(a);
+      QObject::connect(a, &QAction::triggered, &menu, [p, mb] { p->setShareTarget(mb); });
+    }
+    shr->addSeparator();
+    QAction* clip = shr->addAction("Copy to clipboard when ready");
+    clip->setCheckable(true);
+    clip->setChecked(panel.shareToClipboard());
+    QObject::connect(clip, &QAction::triggered, &menu, [p](bool on) { p->setShareToClipboard(on); });
+    QAction* again = shr->addAction("Make share copy of last recording");
+    vv::json sh = panel.shareStatus();
+    again->setEnabled(!panel.lastRecording().isEmpty() && sh.value("state", std::string("idle")) != "running");
+    QObject::connect(again, &QAction::triggered, &menu, [p] { p->shareLastRecording(); });
   }
 
   // Audio devices

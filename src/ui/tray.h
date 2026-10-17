@@ -34,6 +34,7 @@ class TrayController : public QObject {
  private:
   void updateIcon();
   void showPanel();
+  void checkShare();
 
   MainPanel* panel_;
   QSystemTrayIcon tray_;
@@ -43,6 +44,7 @@ class TrayController : public QObject {
   QTimer* tick_;
   IconState iconState_ = IconState::Idle;
   bool pulseHigh_ = true;
+  std::string shareSeen_ = "idle";  // last share job state seen: balloons fire on the transition
 };
 
 }  // namespace vv::ui

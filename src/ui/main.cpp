@@ -78,6 +78,7 @@ int main(int argc, char** argv) {
   ctl.setConfig(loadSettings());
   MainPanel panel(ctl);
   UiPrefs uiPrefs = loadUiPrefs();
+  panel.setPrefs(&uiPrefs);  // share target and clipboard: one ui.json shared with the status bar
   HudBar hud(&panel, &uiPrefs);
   TrayController tray(&panel);
   tray.hooks().hudVisible = [&uiPrefs] { return uiPrefs.hud; };

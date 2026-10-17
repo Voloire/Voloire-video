@@ -1,5 +1,12 @@
 #include "tray.h"
+#include <QApplication>
+#include <QClipboard>
+#include <QDir>
+#include <QFileInfo>
+#include <QMimeData>
 #include <QTimer>
+#include <QUrl>
+#include <cmath>
 #include "panel.h"
 
 namespace vv::ui {
@@ -13,6 +20,7 @@ TrayController::TrayController(MainPanel* panel, QObject* parent) : QObject(pare
   tick_ = new QTimer(this);
   connect(tick_, &QTimer::timeout, this, [this] {
     pulseHigh_ = !pulseHigh_;
+    checkShare();
     updateIcon();
     if (header_) header_->setText(QString("%1   %2").arg(QString(vv::stateName(panel_->recState())).toUpper(), panel_->timerText()));
   });
@@ -33,6 +41,9 @@ QString TrayController::tooltip() const {
                   .arg(QString::fromStdString(c.codec))
                   .arg(QString::fromStdString(c.sys), QString::fromStdString(c.mic));
   if (!panel_->errorText().isEmpty()) t += " | ERROR: " + panel_->errorText();
+  vv::json sh = panel_->shareStatus();
+  if (sh.value("state", std::string("idle")) == "running")
+    t += QString(" | SHARE %1%").arg((int)std::lround(sh.value("progress", 0.0) * 100));
   return t;
 }
 
@@ -49,9 +60,32 @@ void TrayController::updateIcon() {
 }
 
 void TrayController::refresh() {
+  checkShare();
   updateIcon();
   if (menu_.isVisible()) return;  // never rebuild under the user's cursor
   rebuildMenu();
+}
+
+// Balloon when the copy is ready, error balloon when it is not, and the file on the clipboard
+// so a single Ctrl+V pastes it into a chat window or Explorer.
+void TrayController::checkShare() {
+  vv::json sh = panel_->shareStatus();
+  std::string st = sh.value("state", std::string("idle"));
+  if (st == shareSeen_) return;
+  shareSeen_ = st;
+  if (st == "done") {
+    QString path = QString::fromStdString(sh.value("path", std::string()));
+    double mb = sh.value("bytes", 0.0) / 1048576.0;
+    if (panel_->shareToClipboard() && !path.isEmpty()) {
+      auto* md = new QMimeData();
+      md->setUrls({QUrl::fromLocalFile(path)});
+      QApplication::clipboard()->setMimeData(md);
+    }
+    tray_.showMessage("Voloire-video",
+                      QString("Share copy ready: %1 (%2 MB)").arg(QFileInfo(path).fileName()).arg(mb, 0, 'f', 1));
+  } else if (st == "error") {
+    tray_.showMessage("Voloire-video", QString::fromStdString(sh.value("error", std::string())));
+  }
 }
 
 void TrayController::showPanel() {
@@ -81,6 +115,11 @@ void TrayController::rebuildMenu() {
 vv::json TrayController::state() {
   rebuildMenu();
   static const char* names[] = {"idle", "recording", "paused", "error"};
+  vv::json clip = vv::json::array();
+  if (const QMimeData* md = QApplication::clipboard()->mimeData())
+    if (md->hasUrls())
+      for (const QUrl& u : md->urls())
+        if (u.isLocalFile()) clip.push_back(QDir::toNativeSeparators(u.toLocalFile()).toStdString());
   return {{"icon", names[(int)iconState_]},
           {"tooltip", tooltip().toStdString()},
           {"trayVisible", tray_.isVisible()},
@@ -88,6 +127,8 @@ vv::json TrayController::state() {
           {"state", vv::stateName(panel_->recState())},
           {"timer", panel_->timerText().toStdString()},
           {"error", panel_->errorText().toStdString()},
+          {"share", panel_->shareStatus()},
+          {"clipboardFiles", clip},
           {"menu", dumpMenu(&menu_)}};
 }
 

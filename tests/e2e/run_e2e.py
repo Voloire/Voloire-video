@@ -538,6 +538,10 @@ def sc_ui(out):
 
         # drive a recording through the tray menu only
         c.call(cmd="ui_trigger", path=["Source", [m["text"] for m in src if "VV TestSubject UI" in m.get("text", "")][0]])
+        rep.check("menu: Quality > Light", c.call(cmd="ui_trigger", path=["Quality", "Light"])["ok"])
+        rep.check("menu: Share copy > 10 MB", c.call(cmd="ui_trigger", path=["Share copy", "10 MB"])["ok"])
+        cfg = c.call(cmd="get_config")["config"]
+        rep.check("quality reached the controller", cfg["quality"] == "light", cfg.get("quality"))
         c.call(cmd="ui_override", config={"outDir": str(d / "rec"), "name": "ui", "mic": "none", "fps": 30, "sys": "app", "telemetryDir": str(d / "telemetry")})
         rep.check("menu: Start recording accepted", c.call(cmd="ui_trigger", path=["Start recording"])["ok"])
         end = time.time() + 15
@@ -575,6 +579,32 @@ def sc_ui(out):
             rep.check("telemetry written for the UI session", len(tele) == 1)
             rep.data["ui_file"] = str(files[0])
             check_sync_and_tones(rep, files[0], expect_flashes=(4, 8), tol_ms=150, check_mic_tone=False)
+        # Share copy > 10 MB: the copy of the file just recorded ran by itself.
+        end = time.time() + 60
+        while time.time() < end and c.call(cmd="ui_state")["share"]["state"] != "done":
+            time.sleep(0.2)
+        sh = c.call(cmd="ui_state")["share"]
+        if rep.check("share: auto-started and done", sh["state"] == "done", sh.get("error", "")):
+            sp = Path(sh["path"])
+            rep.check("share: file exists", sp.exists(), str(sp))
+            rep.check("share: size <= 10 MiB", sp.exists() and 0 < sp.stat().st_size <= 10 * 1024 * 1024,
+                      sp.stat().st_size if sp.exists() else 0)
+            rep.check("share: on the clipboard", c.call(cmd="ui_state")["clipboardFiles"] == [sh["path"]],
+                      c.call(cmd="ui_state")["clipboardFiles"])
+            sp.unlink(missing_ok=True)
+            rep.check("menu: Share copy > Make share copy of last recording",
+                      c.call(cmd="ui_trigger", path=["Share copy", "Make share copy of last recording"])["ok"])
+            end = time.time() + 60
+            while time.time() < end:
+                st = c.call(cmd="ui_state")
+                if st["share"]["state"] == "done" and Path(st["share"]["path"]).exists():
+                    break
+                time.sleep(0.2)
+            st = c.call(cmd="ui_state")
+            rep.check("share re-run: file is back", st["share"]["state"] == "done" and Path(st["share"]["path"]).exists(),
+                      st["share"])
+            rep.check("share re-run: on the clipboard again", st["clipboardFiles"] == [st["share"]["path"]],
+                      st["clipboardFiles"])
         # settings through the menu while idle (drop the test override so the menu is the only source)
         c.call(cmd="ui_override", config={})
         rep.check("menu: Format > Codec > HEVC", c.call(cmd="ui_trigger", path=["Format", "Codec", "HEVC (H.265)"])["ok"])
