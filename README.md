@@ -1,6 +1,6 @@
 # Voloire-video
 
-Windows recorder for one window or application, with the application's own audio and a microphone on separate tracks, to a file or live to YouTube. Tray icon with live state and timer, a status bar pill that carries the same controls, cyberpunk panel in black with neon blue accents.
+Windows recorder for one window or application, with the application's own audio and a microphone on separate tracks, to a file or live to YouTube. Tray icon with live state and timer, a status bar pill that carries the same controls, and a light sage panel with deep green accents (the menus, the status bar and the tray icon use the dark variant of the same palette, `docs/design/palette.png`).
 
 ## What it does
 
@@ -35,7 +35,7 @@ Download one of the installers from the latest release (both install per user, n
 - `voloire-video-setup-<version>.exe`
 - `voloire-video-<version>.msi`
 
-Silent: `voloire-video-setup-1.0.1.exe /VERYSILENT` or `msiexec /i voloire-video-1.0.1.msi /qn`.
+Silent: `voloire-video-setup-<version>.exe /VERYSILENT` or `msiexec /i voloire-video-<version>.msi /qn`.
 
 ## Use
 

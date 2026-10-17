@@ -20,45 +20,45 @@ QString monoFamily() { return g_mono; }
 
 QString styleSheet() {
   return R"(
-* { font-family: 'Ubuntu', 'Segoe UI'; font-size: 13px; color: #D6ECFF; }
-QWidget#root { background: #020409; border: 1px solid #0C3C66; }
+* { font-family: 'Ubuntu', 'Segoe UI'; font-size: 13px; color: #2C3A30; }
+QWidget#root { background: #F0F4EA; border: 1px solid #DCE3D4; }
 QLabel { background: transparent; }
-QLabel#title { font-size: 17px; font-weight: 700; letter-spacing: 3px; color: #00F0FF; }
-QLabel#sub { color: #5B7492; font-size: 11px; letter-spacing: 2px; }
-QLabel#section { color: #00B4FF; font-size: 11px; font-weight: 700; letter-spacing: 3px; }
-QLabel#status { color: #58AEFF; }
-QLabel#err { color: #FF3D6E; }
-QFrame#card { background: #060B15; border: 1px solid #0C3C66; border-radius: 3px; }
-QFrame#sep { background: #0C3C66; max-height: 1px; min-height: 1px; border: none; }
+QLabel#title { font-size: 17px; font-weight: 700; letter-spacing: 2px; color: #2C3A30; }
+QLabel#sub { color: #7C8A7C; font-size: 11px; letter-spacing: 1px; }
+QLabel#section { color: #75857A; font-size: 11px; font-weight: 700; letter-spacing: 2px; }
+QLabel#status { color: #3E6B4C; }
+QLabel#err { color: #B3372B; }
+QFrame#card { background: #FFFFFF; border: 1px solid #E2E8DA; border-radius: 8px; }
+QFrame#sep { background: #E2E8DA; max-height: 1px; min-height: 1px; border: none; }
 QComboBox, QSpinBox, QLineEdit {
-  background: #0A1424; border: 1px solid #0C3C66; border-radius: 2px; padding: 4px 8px; min-height: 20px;
-  selection-background-color: #00B4FF; selection-color: #020409; }
-QComboBox:hover, QSpinBox:hover, QLineEdit:hover, QComboBox:focus, QSpinBox:focus, QLineEdit:focus { border: 1px solid #00B4FF; }
-QComboBox::drop-down { border: none; width: 22px; }
-QComboBox::down-arrow { image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid #00B4FF; margin-right: 8px; }
-QComboBox QAbstractItemView { background: #060B15; border: 1px solid #00B4FF; selection-background-color: #0C3C66; selection-color: #00F0FF; outline: none; }
-QPushButton { background: #0A1424; border: 1px solid #0C3C66; border-radius: 2px; padding: 6px 14px; color: #58AEFF; font-weight: 700; letter-spacing: 1px; }
-QPushButton:hover { border: 1px solid #00B4FF; color: #00F0FF; background: #0B1C34; }
-QPushButton:pressed { background: #00B4FF; color: #020409; }
-QPushButton:disabled { color: #2A3B52; border: 1px solid #0A2036; }
-QPushButton#rec { font-size: 15px; padding: 10px 22px; border: 1px solid #00B4FF; color: #00F0FF; }
-QPushButton#rec[active="true"] { background: #00B4FF; color: #020409; }
-QPushButton#flat { border: none; background: transparent; padding: 2px 8px; font-size: 15px; }
-QPushButton#flat:hover { color: #00F0FF; }
+  background: #FFFFFF; border: 1px solid #DCE3D4; border-radius: 6px; padding: 4px 8px; min-height: 20px;
+  selection-background-color: #2F5D3F; selection-color: #FFFFFF; }
+QComboBox:hover, QSpinBox:hover, QLineEdit:hover, QComboBox:focus, QSpinBox:focus, QLineEdit:focus { border: 1px solid #3E6B4C; }
+QComboBox QAbstractItemView { background: #FFFFFF; border: 1px solid #DCE3D4; selection-background-color: #E4EDDD; selection-color: #2C3A30; outline: none; }
+QPushButton { background: #FFFFFF; border: 1px solid #DCE3D4; border-radius: 6px; padding: 6px 14px; color: #33413A; font-weight: 700; letter-spacing: 1px; }
+QPushButton:hover { border: 1px solid #3E6B4C; color: #2F5D3F; background: #F4F8EF; }
+QPushButton:pressed { background: #E4EDDD; }
+QPushButton:disabled { color: #AAB4A6; border: 1px solid #E6EBE1; background: #F7FAF3; }
+QPushButton#rec { font-size: 15px; padding: 10px 22px; background: #2F5D3F; border: 1px solid #2F5D3F; color: #FFFFFF; }
+QPushButton#rec:hover { background: #28503A; border: 1px solid #28503A; }
+QPushButton#rec[active="true"] { background: #C0392B; border: 1px solid #C0392B; }
+QPushButton#rec[active="true"]:hover { background: #A93226; border: 1px solid #A93226; }
+QPushButton#flat { border: none; background: transparent; padding: 2px 8px; font-size: 15px; color: #7C8A7C; }
+QPushButton#flat:hover { color: #2F5D3F; }
 QRadioButton, QCheckBox { spacing: 8px; }
-QRadioButton::indicator, QCheckBox::indicator { width: 12px; height: 12px; border: 1px solid #0C3C66; background: #0A1424; border-radius: 6px; }
-QCheckBox::indicator { border-radius: 2px; }
-QRadioButton::indicator:checked, QCheckBox::indicator:checked { background: #00B4FF; border: 1px solid #00F0FF; }
-QMenu { background: #060B15; border: 1px solid #00B4FF; padding: 4px; }
-QMenu::item { padding: 6px 26px 6px 22px; border: 1px solid transparent; }
-QMenu::item:selected { background: #0B1C34; border: 1px solid #0C3C66; color: #00F0FF; }
-QMenu::item:disabled { color: #5B7492; }
-QMenu::separator { height: 1px; background: #0C3C66; margin: 4px 6px; }
+QRadioButton::indicator, QCheckBox::indicator { width: 12px; height: 12px; border: 1px solid #C9D4C2; background: #FFFFFF; border-radius: 6px; }
+QCheckBox::indicator { border-radius: 3px; }
+QRadioButton::indicator:checked, QCheckBox::indicator:checked { background: #2F5D3F; border: 1px solid #2F5D3F; }
+QMenu { background: #FFFFFF; border: 1px solid #DCE3D4; padding: 4px; }
+QMenu::item { padding: 6px 26px 6px 22px; border: 1px solid transparent; color: #33413A; }
+QMenu::item:selected { background: #E4EDDD; border: 1px solid #E4EDDD; color: #2C3A30; }
+QMenu::item:disabled { color: #AAB4A6; }
+QMenu::separator { height: 1px; background: #E2E8DA; margin: 4px 6px; }
 QMenu::indicator { width: 10px; height: 10px; margin-left: 6px; }
-QMenu::indicator:checked { background: #00B4FF; border: 1px solid #00F0FF; border-radius: 5px; }
-QToolTip { background: #060B15; color: #00F0FF; border: 1px solid #00B4FF; padding: 4px; }
-QScrollBar:vertical { background: #060B15; width: 8px; }
-QScrollBar::handle:vertical { background: #0C3C66; min-height: 20px; }
+QMenu::indicator:checked { background: #2F5D3F; border: 1px solid #2F5D3F; border-radius: 5px; }
+QToolTip { background: #FFFFFF; color: #2C3A30; border: 1px solid #DCE3D4; padding: 4px; }
+QScrollBar:vertical { background: #F0F4EA; width: 8px; }
+QScrollBar::handle:vertical { background: #DCE3D4; min-height: 20px; }
 QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
 )";
 }
@@ -84,14 +84,14 @@ QPixmap trayPixmap(IconState s, int size, double pulse) {
   QRectF r(2 * u, 2 * u, 60 * u, 60 * u);
   QPainterPath bg;
   bg.addRoundedRect(r, 14 * u, 14 * u);
-  p.fillPath(bg, QColor(2, 4, 9));
+  p.fillPath(bg, hud::bg);
 
   QColor ring, glow;
   switch (s) {
-    case IconState::Recording: ring = col::cyan; break;
-    case IconState::Paused: ring = col::azure; break;
+    case IconState::Recording: ring = hud::rec; break;
+    case IconState::Paused: ring = hud::paused; break;
     case IconState::Error: ring = col::alert; break;
-    default: ring = col::dim; break;
+    default: ring = hud::muted; break;
   }
   glow = ring;
   glow.setAlphaF(0.30);
@@ -103,14 +103,14 @@ QPixmap trayPixmap(IconState s, int size, double pulse) {
 
   QPointF c(32 * u, 32 * u);
   if (s == IconState::Recording) {
-    QColor d = col::cyan;
+    QColor d = hud::rec;
     d.setAlphaF(0.55 + 0.45 * pulse);
     p.setPen(Qt::NoPen);
     p.setBrush(d);
     p.drawEllipse(c, 13 * u, 13 * u);
   } else if (s == IconState::Paused) {
     p.setPen(Qt::NoPen);
-    p.setBrush(col::azure);
+    p.setBrush(hud::paused);
     p.drawRoundedRect(QRectF(21 * u, 20 * u, 8 * u, 24 * u), 2 * u, 2 * u);
     p.drawRoundedRect(QRectF(35 * u, 20 * u, 8 * u, 24 * u), 2 * u, 2 * u);
   } else if (s == IconState::Error) {
@@ -118,7 +118,7 @@ QPixmap trayPixmap(IconState s, int size, double pulse) {
     p.drawLine(QPointF(32 * u, 18 * u), QPointF(32 * u, 36 * u));
     p.drawPoint(QPointF(32 * u, 45 * u));
   } else {
-    p.setPen(QPen(col::dim, 4 * u));
+    p.setPen(QPen(hud::muted, 4 * u));
     p.setBrush(Qt::NoBrush);
     p.drawEllipse(c, 12 * u, 12 * u);
   }
@@ -150,14 +150,14 @@ void LevelMeter::paintEvent(QPaintEvent*) {
   auto pos = [&](double db) { return std::clamp((db + 60.0) / 60.0, 0.0, 1.0) * (r.width() - 4); };
   QRectF bar(r.left() + 2, r.top() + 2, pos(rms_), r.height() - 4);
   QLinearGradient g(bar.topLeft(), QPointF(r.right(), r.top()));
-  g.setColorAt(0, col::neon);
-  g.setColorAt(0.8, col::cyan);
-  g.setColorAt(1, QColor(255, 255, 255));
+  g.setColorAt(0, col::accent);
+  g.setColorAt(0.8, col::accent2);
+  g.setColorAt(1, QColor(0x8F, 0xC0, 0x9A));
   p.setPen(Qt::NoPen);
   p.setBrush(g);
   p.drawRect(bar);
   double hx = r.left() + 2 + pos(hold_);
-  p.setPen(QPen(col::cyan, 2));
+  p.setPen(QPen(col::accent, 2));
   p.drawLine(QPointF(hx, r.top() + 2), QPointF(hx, r.bottom() - 2));
 }
 

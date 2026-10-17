@@ -9,9 +9,7 @@
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
-#include <QLinearGradient>
 #include <QMouseEvent>
-#include <QPainter>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QSignalBlocker>
@@ -114,7 +112,7 @@ void MainPanel::build() {
     f.setPixelSize(58);
     f.setBold(true);
     timerLabel_->setFont(f);
-    timerLabel_->setStyleSheet(QString("color:#5B7492; font-size:58px; font-weight:700; font-family:'%1';").arg(monoFamily()));
+    timerLabel_->setStyleSheet(QString("color:%1; font-size:58px; font-weight:700; font-family:'%2';").arg(col::dim.name(), monoFamily()));
     stateLabel_ = new QLabel("IDLE", this);
     stateLabel_->setObjectName("status");
     stateLabel_->setAlignment(Qt::AlignCenter);
@@ -130,7 +128,6 @@ void MainPanel::build() {
     recBtn_ = new QPushButton("REC", this);
     recBtn_->setObjectName("rec");
     pauseBtn_ = new QPushButton("PAUSE", this);
-    pauseBtn_->setObjectName("rec");
     btns->addWidget(recBtn_, 2);
     btns->addWidget(pauseBtn_, 1);
     box->addWidget(timerLabel_);
@@ -646,7 +643,7 @@ void MainPanel::poll() {
   pauseBtn_->setEnabled(s == RecState::Recording || s == RecState::Paused);
   pauseBtn_->setText(s == RecState::Paused ? "RESUME" : "PAUSE");
   timerLabel_->setStyleSheet(QString("color:%1; font-size:58px; font-weight:700; font-family:'%2';")
-                                 .arg(s == RecState::Paused ? "#58AEFF" : s == RecState::Idle ? "#5B7492" : "#00F0FF", monoFamily()));
+                                 .arg(s == RecState::Paused ? col::paused.name() : s == RecState::Idle ? col::dim.name() : col::text.name(), monoFamily()));
 
   auto m = vv::Telemetry::get().snapshot();
   auto num = [&](const char* k, double d) { return m.contains(k) ? m[k].get<double>() : d; };
@@ -663,16 +660,6 @@ void MainPanel::poll() {
   }
   for (QWidget* w : std::initializer_list<QWidget*>{sysCombo_, micCombo_, containerCombo_, codecCombo_, encoderCombo_, resCombo_, fpsCombo_, qualityCombo_, shareCombo_, winCombo_, monCombo_, outputCombo_, streamKbps_, urlEdit_, keyEdit_, keySave_})
     w->setEnabled(s == RecState::Idle && !starting_);
-}
-
-void MainPanel::paintEvent(QPaintEvent* e) {
-  QWidget::paintEvent(e);
-  QPainter p(this);
-  QLinearGradient g(0, 0, width(), 0);
-  g.setColorAt(0, col::cyan);
-  g.setColorAt(0.5, col::neon);
-  g.setColorAt(1, QColor(0, 180, 255, 0));
-  p.fillRect(QRect(0, 0, width(), 2), g);
 }
 
 bool MainPanel::eventFilter(QObject* o, QEvent* e) {

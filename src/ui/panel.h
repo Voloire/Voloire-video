@@ -80,7 +80,6 @@ class MainPanel : public QWidget {
   void changed();  // state or configuration changed: tray refreshes
 
  protected:
-  void paintEvent(QPaintEvent*) override;
   bool eventFilter(QObject* o, QEvent* e) override;
 
  private:
