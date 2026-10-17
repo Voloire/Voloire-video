@@ -599,8 +599,15 @@ def sc_ui(out):
             rep.check("share: file exists", sp.exists(), str(sp))
             rep.check("share: size <= 10 MiB", sp.exists() and 0 < sp.stat().st_size <= 10 * 1024 * 1024,
                       sp.stat().st_size if sp.exists() else 0)
-            rep.check("share: on the clipboard", c.call(cmd="ui_state")["clipboardFiles"] == [sh["path"]],
-                      c.call(cmd="ui_state")["clipboardFiles"])
+            # The clipboard lands on the GUI thread a beat after the share state reads "done".
+            clip = []
+            end = time.time() + 10
+            while time.time() < end:
+                clip = c.call(cmd="ui_state")["clipboardFiles"]
+                if clip == [sh["path"]]:
+                    break
+                time.sleep(0.2)
+            rep.check("share: on the clipboard", clip == [sh["path"]], clip)
             sp.unlink(missing_ok=True)
             rep.check("menu: Share copy > Make share copy of last recording",
                       c.call(cmd="ui_trigger", path=["Share copy", "Make share copy of last recording"])["ok"])
@@ -613,6 +620,10 @@ def sc_ui(out):
             st = c.call(cmd="ui_state")
             rep.check("share re-run: file is back", st["share"]["state"] == "done" and Path(st["share"]["path"]).exists(),
                       st["share"])
+            end = time.time() + 10
+            while time.time() < end and st["clipboardFiles"] != [st["share"]["path"]]:
+                time.sleep(0.2)
+                st = c.call(cmd="ui_state")
             rep.check("share re-run: on the clipboard again", st["clipboardFiles"] == [st["share"]["path"]],
                       st["clipboardFiles"])
         # settings through the menu while idle (drop the test override so the menu is the only source)
