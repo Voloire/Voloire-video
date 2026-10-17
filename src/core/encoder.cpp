@@ -1,8 +1,13 @@
 #include "encoder.h"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <condition_variable>
 #include <cstdarg>
+#include <cstdint>
+#include <deque>
 #include <mutex>
+#include <thread>
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -10,6 +15,8 @@ extern "C" {
 #include <libavutil/opt.h>
 #include <libswscale/swscale.h>
 }
+#include "common.h"
+#include "redact.h"
 #include "telemetry.h"
 
 namespace vv {
@@ -61,9 +68,97 @@ struct Muxer::Impl {
   std::atomic<uint64_t> vframes{0};
   bool headerWritten = false;
 
+  // Network/async mode: packets queue to a writer thread, so capture and encoding never block
+  // on the socket. A stalled peer is cut loose whether or not the OS timeout fires, by the same
+  // deadline watched from the AVIO interrupt callback.
+  bool network = false;
+  bool async = false;
+  int maxQueueMs = 3000;
+  struct QItem {
+    AVPacket* pkt;
+    int64_t ptsUs;
+    bool video;
+  };
+  std::deque<QItem> queue;
+  std::mutex qMu;
+  std::condition_variable qCv;
+  std::thread writer;
+  std::atomic<bool> closing{false};
+  std::atomic<bool> failedFlag{false};
+  std::atomic<uint64_t> dropped{0};
+  std::atomic<int64_t> lastEnqV{-1}, lastSentV{-1};
+  std::atomic<int64_t> lastIoUs{0};
+  bool dropMode = false;  // guarded by qMu
+  AVIOInterruptCB cb{};
+
   ~Impl() { release(); }
 
+  static int interruptCb(void* o) {
+    auto* d = (Impl*)o;
+    if (!d->network) return 0;
+    return nowUs() - d->lastIoUs.load(std::memory_order_relaxed) > 5000000 ? 1 : 0;
+  }
+
+  void enqueue(AVPacket* pkt, bool video, int64_t ptsUs) {
+    std::lock_guard lk(qMu);
+    if (failedFlag.load()) {  // the peer is gone: free it here, the queue must not grow
+      av_packet_free(&pkt);
+      ++dropped;
+      return;
+    }
+    if (video) {
+      lastEnqV = ptsUs;
+      int64_t sent = lastSentV.load();
+      if (!dropMode && sent >= 0 && ptsUs - sent > (int64_t)maxQueueMs * 1000) dropMode = true;
+      if (dropMode) {
+        if (pkt->flags & AV_PKT_FLAG_KEY) dropMode = false;  // resume on the next keyframe
+        else {
+          av_packet_free(&pkt);
+          ++dropped;
+          return;
+        }
+      }
+    }
+    queue.push_back({pkt, ptsUs, video});
+    qCv.notify_one();
+  }
+
+  void writerLoop() {
+    for (;;) {
+      QItem q;
+      {
+        std::unique_lock lk(qMu);
+        qCv.wait(lk, [this] { return !queue.empty() || closing.load(); });
+        if (queue.empty()) return;  // closing and drained
+        q = queue.front();
+        queue.pop_front();
+      }
+      if (failedFlag.load()) {
+        av_packet_free(&q.pkt);
+        continue;
+      }
+      int r = av_interleaved_write_frame(fmt, q.pkt);
+      if (q.video) lastSentV = q.ptsUs;
+      av_packet_free(&q.pkt);
+      if (r < 0) failedFlag = true;
+      else lastIoUs = nowUs();
+    }
+  }
+
   void release() {
+    if (writer.joinable()) {
+      {
+        std::lock_guard lk(qMu);
+        closing = true;
+      }
+      qCv.notify_all();
+      writer.join();
+    }
+    {
+      std::lock_guard lk(qMu);
+      for (auto& q : queue) av_packet_free(&q.pkt);
+      queue.clear();
+    }
     if (sws) { sws_freeContext(sws); sws = nullptr; }
     if (vframe) av_frame_free(&vframe);
     if (vctx) avcodec_free_context(&vctx);
@@ -90,7 +185,11 @@ struct Muxer::Impl {
     c->framerate = {p.fps, 1};
     c->pix_fmt = AV_PIX_FMT_NV12;
     c->bit_rate = (int64_t)p.bitrateKbps * 1000;
-    c->gop_size = p.fps * 2;
+    if (p.rateControl == "cbr") {
+      c->rc_max_rate = c->bit_rate;
+      c->rc_buffer_size = p.bitrateKbps * 1000;
+    }
+    c->gop_size = p.fps * std::max(1, p.gopSeconds);
     c->max_b_frames = 0;
     c->colorspace = AVCOL_SPC_BT709;
     c->color_primaries = AVCOL_PRI_BT709;
@@ -98,13 +197,14 @@ struct Muxer::Impl {
     c->color_range = AVCOL_RANGE_MPEG;
     if (fmt->oformat->flags & AVFMT_GLOBALHEADER) c->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     std::string n = name;
+    const char* rc = p.rateControl == "cbr" ? "cbr" : "vbr";
     if (n.find("nvenc") != std::string::npos) {
       av_opt_set(c->priv_data, "preset", "p4", 0);
       av_opt_set(c->priv_data, "tune", "hq", 0);
-      av_opt_set(c->priv_data, "rc", "vbr", 0);
+      av_opt_set(c->priv_data, "rc", rc, 0);
     } else if (n.find("amf") != std::string::npos) {
       av_opt_set(c->priv_data, "quality", "balanced", 0);
-      av_opt_set(c->priv_data, "rc", "vbr_peak", 0);
+      av_opt_set(c->priv_data, "rc", p.rateControl == "cbr" ? "cbr" : "vbr_peak", 0);
     } else if (n.find("qsv") != std::string::npos) {
       av_opt_set(c->priv_data, "preset", "medium", 0);
     }
@@ -159,8 +259,9 @@ struct Muxer::Impl {
     t.ctx->sample_rate = kSampleRate;
     t.ctx->sample_fmt = AV_SAMPLE_FMT_FLTP;
     av_channel_layout_default(&t.ctx->ch_layout, kChannels);
-    t.ctx->bit_rate = 160000;
+    t.ctx->bit_rate = (int64_t)std::max(1, p.audioKbps) * 1000;
     t.ctx->time_base = {1, kSampleRate};
+    t.samples = (int64_t)(p.startPtsUs * (int64_t)kSampleRate / 1000000);  // 0 except after a reconnect
     if (fmt->oformat->flags & AVFMT_GLOBALHEADER) t.ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     int r = avcodec_open2(t.ctx, codec, nullptr);
     if (r < 0) { err = "aac open: " + avErr(r); return false; }
@@ -185,12 +286,28 @@ struct Muxer::Impl {
       if (r < 0) return false;
       av_packet_rescale_ts(pkt, c->time_base, st->time_base);
       pkt->stream_index = st->index;
-      {
-        std::lock_guard lk(writeMu);
-        r = av_interleaved_write_frame(fmt, pkt);
+      if (async) {
+        int64_t us = pkt->pts == AV_NOPTS_VALUE ? -1 : (int64_t)std::llround(pkt->pts * av_q2d(st->time_base) * 1e6);
+        AVPacket* cl = av_packet_clone(pkt);
+        bool video = st == vst;
+        av_packet_unref(pkt);
+        if (!cl) {
+          failedFlag = true;
+          return false;
+        }
+        enqueue(cl, video, us);
+      } else {
+        {
+          std::lock_guard lk(writeMu);
+          r = av_interleaved_write_frame(fmt, pkt);
+        }
+        av_packet_unref(pkt);
+        lastIoUs = nowUs();
+        if (r < 0) {
+          failedFlag = true;
+          return false;
+        }
       }
-      av_packet_unref(pkt);
-      if (r < 0) return false;
     }
   }
 
@@ -217,23 +334,46 @@ Muxer::~Muxer() = default;
 bool Muxer::open(const EncoderParams& p, std::string& err) {
   auto& d = *d_;
   d.p = p;
+  d.network = p.path.rfind("rtmp://", 0) == 0 || p.path.rfind("rtmps://", 0) == 0;
+  d.async = p.asyncWrite;
+  d.maxQueueMs = p.maxQueueMs;
+  if (d.network) {
+    static std::once_flag netOnce;
+    std::call_once(netOnce, [] { avformat_network_init(); });
+  }
   av_log_set_callback(avLogToTelemetry);
-  int r = avformat_alloc_output_context2(&d.fmt, nullptr, nullptr, p.path.c_str());
+  int r = avformat_alloc_output_context2(&d.fmt, nullptr, p.format.empty() ? nullptr : p.format.c_str(), p.path.c_str());
   if (r < 0 || !d.fmt) { err = "cannot create output: " + avErr(r); return false; }
   if (!d.openVideo(err)) return false;
   for (auto& n : p.audioTracks)
     if (!d.openAudio(n, err)) return false;
   if (!(d.fmt->oformat->flags & AVFMT_NOFILE)) {
-    r = avio_open(&d.fmt->pb, p.path.c_str(), AVIO_FLAG_WRITE);
-    if (r < 0) { err = "cannot open " + p.path + ": " + avErr(r); return false; }
+    if (d.network) {
+      // A stalled peer must fail in seconds, not freeze the recording: rw_timeout bounds each
+      // blocked call, and the same 5 s deadline is watched from the interrupt callback.
+      d.cb = {Impl::interruptCb, &d};
+      d.lastIoUs = nowUs();
+      AVDictionary* opts = nullptr;
+      av_dict_set(&opts, "rw_timeout", "5000000", 0);
+      av_dict_set(&opts, "tcp_nodelay", "1", 0);
+      r = avio_open2(&d.fmt->pb, p.path.c_str(), AVIO_FLAG_WRITE, &d.cb, &opts);
+      av_dict_free(&opts);
+    } else {
+      r = avio_open(&d.fmt->pb, p.path.c_str(), AVIO_FLAG_WRITE);
+    }
+    if (r < 0) { err = "cannot open " + redactUrl(p.path) + ": " + avErr(r); return false; }
   }
   AVDictionary* opts = nullptr;
-  if (p.container == "mp4") av_dict_set(&opts, "movflags", "+frag_keyframe+empty_moov+default_base_moof", 0);
+  if (p.container == "mp4")
+    av_dict_set(&opts, "movflags", p.faststart ? "+faststart" : "+frag_keyframe+empty_moov+default_base_moof", 0);
+  d.lastIoUs = nowUs();
   r = avformat_write_header(d.fmt, &opts);
   av_dict_free(&opts);
   if (r < 0) { err = "write header: " + avErr(r); return false; }
   d.headerWritten = true;
+  d.lastIoUs = nowUs();
   d.pkt = av_packet_alloc();
+  if (d.async) d.writer = std::thread([&d] { d.writerLoop(); });
   return true;
 }
 
@@ -294,6 +434,11 @@ bool Muxer::close(std::string& err) {
     avcodec_send_frame(t.ctx, nullptr);
     ok = d.writePackets(t.ctx, t.st, t.pkt) && ok;
   }
+  if (d.async && d.writer.joinable()) {  // let the tail packets out, then stop the writer
+    d.closing = true;
+    d.qCv.notify_all();
+    d.writer.join();
+  }
   if (d.headerWritten) {
     int r = av_write_trailer(d.fmt);
     if (r < 0) { err = "write trailer: " + avErr(r); ok = false; }
@@ -310,5 +455,16 @@ uint64_t Muxer::bytesWritten() const {
 }
 int Muxer::width() const { return d_->p.width; }
 int Muxer::height() const { return d_->p.height; }
+
+bool Muxer::failed() const { return d_->failedFlag.load(); }
+
+double Muxer::queuedMs() const {
+  auto& d = *d_;
+  int64_t enq = d.lastEnqV.load(), sent = d.lastSentV.load();
+  if (enq < 0 || sent < 0) return 0;
+  return (double)std::max<int64_t>(0, enq - sent) / 1000.0;
+}
+
+uint64_t Muxer::droppedPackets() const { return d_->dropped.load(); }
 
 }  // namespace vv

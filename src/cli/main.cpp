@@ -8,6 +8,7 @@
 #include "control.h"
 #include "crash_handler.h"
 #include "devices.h"
+#include "share_copy.h"
 #include "telemetry.h"
 
 using namespace vv;
@@ -19,12 +20,15 @@ void usage() {
       "vvcli " VV_VERSION "\n"
       "  vvcli list windows|monitors|devices\n"
       "  vvcli record [options]\n"
+      "  vvcli share <file> --target-mb N\n"
       "  vvcli ctl <pipe> '<json request>'\n"
       "record options:\n"
       "  --window-title T | --window-exe E | --pid N | --hwnd N | --foreground | --monitor N | --dxgi N | --synthetic\n"
       "  --sys app|system|none|synthetic   --mic default|none|synthetic|device:<id>\n"
       "  --duration S  --out DIR  --name N  --fps N  --height N  --bitrate KBPS\n"
+      "  --quality high|standard|light|minimal (--bitrate implies custom)\n"
       "  --codec h264|hevc|av1  --container mkv|mp4  --encoder auto|nvenc|amf|qsv|mf\n"
+      "  --stream URL --stream-key K --stream-bitrate KBPS (RTMP output, no file is written)\n"
       "  --pipe NAME (control server)  --telemetry-dir DIR  --synth-sys-hz F  --synth-mic-hz F  --verbose");
 }
 
@@ -65,6 +69,19 @@ int wmain(int argc, wchar_t** argv) {
     return 0;
   }
   if (a[0] == "ctl" && a.size() >= 3) return ctl(a[1], a[2]);
+  if (a[0] == "share" && a.size() >= 2) {
+    std::string src = a[1];
+    int targetMB = 0;
+    for (size_t i = 2; i < a.size(); ++i) {
+      const std::string& k = a[i];
+      if (k == "--target-mb" && i + 1 < a.size()) targetMB = std::stoi(a[++i]);
+      else { std::fprintf(stderr, "unknown option %s\n", k.c_str()); return 1; }
+    }
+    if (targetMB <= 0) { std::fprintf(stderr, "share needs --target-mb N\n"); return 1; }
+    ShareResult sr = makeShareCopy(src, targetMB);
+    std::puts(sr.toJson().dump().c_str());
+    return sr.error.empty() ? 0 : 5;
+  }
   if (a[0] != "record") { usage(); return 1; }
 
   RecordConfig c;
@@ -98,11 +115,15 @@ int wmain(int argc, wchar_t** argv) {
     else if (k == "--name") c.name = need("--name");
     else if (k == "--fps") c.fps = std::stoi(need("--fps"));
     else if (k == "--height") c.outHeight = std::stoi(need("--height"));
-    else if (k == "--bitrate") c.bitrateKbps = std::stoi(need("--bitrate"));
+    else if (k == "--bitrate") { c.bitrateKbps = std::stoi(need("--bitrate")); c.quality = "custom"; }
+    else if (k == "--quality") c.quality = need("--quality");
     else if (k == "--codec") c.codec = need("--codec");
     else if (k == "--container") c.container = need("--container");
     else if (k == "--encoder") c.encoder = need("--encoder");
     else if (k == "--telemetry-dir") c.telemetryDir = need("--telemetry-dir");
+    else if (k == "--stream") { c.output = "stream"; c.streamUrl = need("--stream"); }
+    else if (k == "--stream-key") app.recorder().setStreamKey(need("--stream-key"));  // one-shot, never stored
+    else if (k == "--stream-bitrate") c.streamBitrateKbps = std::stoi(need("--stream-bitrate"));
     else if (k == "--synth-sys-hz") c.synthSysHz = std::stod(need("--synth-sys-hz"));
     else if (k == "--synth-mic-hz") c.synthMicHz = std::stod(need("--synth-mic-hz"));
     else if (k == "--pipe") pipe = need("--pipe");
@@ -128,7 +149,8 @@ int wmain(int argc, wchar_t** argv) {
   if (!err.empty()) { std::fprintf(stderr, "%s\n", err.c_str()); return 2; }
   app.setConfig(c);
   if (!app.recorder().start(c, err)) { std::fprintf(stderr, "start failed: %s\n", err.c_str()); return 3; }
-  std::fprintf(stderr, "recording to %s\n", app.recorder().status()["path"].get<std::string>().c_str());
+  if (c.output == "stream") std::fprintf(stderr, "streaming\n");  // the URL carries the key: never print it
+  else std::fprintf(stderr, "recording to %s\n", app.recorder().status()["path"].get<std::string>().c_str());
 
   while (!quit && app.recorder().state() != RecState::Idle) {
     if (duration > 0 && app.recorder().elapsedUs() >= (int64_t)(duration * 1e6)) break;

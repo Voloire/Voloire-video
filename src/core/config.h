@@ -22,12 +22,19 @@ struct RecordConfig {
   std::string container = "mkv";  // mkv | mp4
   std::string codec = "h264";     // h264 | hevc | av1
   std::string encoder = "auto";   // auto | nvenc | amf | qsv | mf
+  std::string quality = "standard";  // high | standard | light | minimal | custom
   int outHeight = 0;              // 0 keeps the source size
   int fps = 60;
   int bitrateKbps = 12000;
   std::string outDir;
   std::string name = "recording";
   std::string telemetryDir;  // empty: <outDir>/telemetry/<base name>
+
+  // Output destination: a local file, or an RTMP stream (the key is NOT part of the config).
+  std::string output = "file";   // file | stream
+  std::string streamUrl = "rtmp://a.rtmp.youtube.com/live2";  // ingest base, YouTube by default
+  int streamBitrateKbps = 6000;  // 1000..51000
+  int streamHeight = 1080;       // 0 keeps the source size
 
   // Synthetic sources (test harness)
   double synthSysHz = 440.0;
@@ -43,5 +50,17 @@ std::string defaultOutDir();
 std::string settingsPath();
 RecordConfig loadSettings();
 void saveSettings(const RecordConfig& c);
+
+// UI-only preferences, kept in ui.json beside config.json.
+struct UiPrefs {
+  bool hud = true;
+  int hudX = -1, hudY = -1;   // -1: never placed, use the default position
+  int shareTargetMB = 0;      // 0 = off (Task 5)
+  bool shareToClipboard = true;
+  json toJson() const;
+  static UiPrefs fromJson(const json& j);
+};
+UiPrefs loadUiPrefs();
+void saveUiPrefs(const UiPrefs& p);
 
 }  // namespace vv

@@ -29,9 +29,12 @@ json RecordConfig::toJson() const {
           {"monitor", monitor},         {"sys", sys},       {"sysDevice", sysDevice},
           {"mic", mic},                 {"micDevice", micDevice},
           {"container", container},     {"codec", codec},   {"encoder", encoder},
+          {"quality", quality},
           {"outHeight", outHeight},     {"fps", fps},       {"bitrateKbps", bitrateKbps},
           {"outDir", outDir},           {"name", name},     {"synthSysHz", synthSysHz},
           {"synthMicHz", synthMicHz},   {"synthFps", synthFps},
+          {"output", output},           {"streamUrl", streamUrl}, {"streamBitrateKbps", streamBitrateKbps},
+          {"streamHeight", streamHeight},
           {"telemetryDir", telemetryDir}};
 }
 
@@ -41,9 +44,12 @@ RecordConfig RecordConfig::fromJson(const json& j) {
   get(j, "monitor", c.monitor);         get(j, "sys", c.sys);     get(j, "sysDevice", c.sysDevice);
   get(j, "mic", c.mic);                 get(j, "micDevice", c.micDevice);
   get(j, "container", c.container);     get(j, "codec", c.codec); get(j, "encoder", c.encoder);
+  get(j, "quality", c.quality);
   get(j, "outHeight", c.outHeight);     get(j, "fps", c.fps);     get(j, "bitrateKbps", c.bitrateKbps);
   get(j, "outDir", c.outDir);           get(j, "name", c.name);   get(j, "synthSysHz", c.synthSysHz);
   get(j, "synthMicHz", c.synthMicHz);   get(j, "synthFps", c.synthFps);
+  get(j, "output", c.output);           get(j, "streamUrl", c.streamUrl);
+  get(j, "streamBitrateKbps", c.streamBitrateKbps); get(j, "streamHeight", c.streamHeight);
   get(j, "telemetryDir", c.telemetryDir);
   return c;
 }
@@ -61,9 +67,17 @@ std::string RecordConfig::validate() const {
   if (!in(container, {"mkv", "mp4"})) return "container must be mkv|mp4";
   if (!in(codec, {"h264", "hevc", "av1"})) return "codec must be h264|hevc|av1";
   if (!in(encoder, {"auto", "nvenc", "amf", "qsv", "mf"})) return "encoder must be auto|nvenc|amf|qsv|mf";
+  if (!in(quality, {"high", "standard", "light", "minimal", "custom"})) return "quality must be high|standard|light|minimal|custom";
   if (fps < 1 || fps > 240) return "fps out of range";
   if (bitrateKbps < 100 || bitrateKbps > 200000) return "bitrate out of range";
   if (outHeight < 0 || outHeight > 4320) return "outHeight out of range";
+  if (!in(output, {"file", "stream"})) return "output must be file|stream";
+  if (output == "stream") {
+    if (streamUrl.rfind("rtmp://", 0) != 0 && streamUrl.rfind("rtmps://", 0) != 0)
+      return "stream URL must start with rtmp:// or rtmps://";
+    if (streamBitrateKbps < 1000 || streamBitrateKbps > 51000) return "stream bitrate out of range (1000..51000)";
+    if (streamHeight < 0 || streamHeight > 4320) return "stream height out of range";
+  }
   return {};
 }
 
@@ -101,6 +115,41 @@ void saveSettings(const RecordConfig& c) {
     auto p = pathOf(settingsPath());
     std::filesystem::create_directories(p.parent_path());
     std::ofstream(p) << c.toJson().dump(2);
+  } catch (...) {}
+}
+
+namespace {
+std::string uiPrefsPath() { return strOf(pathOf(settingsPath()).parent_path() / "ui.json"); }
+}  // namespace
+
+json UiPrefs::toJson() const {
+  return {{"hud", hud}, {"hudX", hudX}, {"hudY", hudY},
+          {"shareTargetMB", shareTargetMB}, {"shareToClipboard", shareToClipboard}};
+}
+
+UiPrefs UiPrefs::fromJson(const json& j) {
+  UiPrefs p;
+  get(j, "hud", p.hud);
+  get(j, "hudX", p.hudX);
+  get(j, "hudY", p.hudY);
+  get(j, "shareTargetMB", p.shareTargetMB);
+  get(j, "shareToClipboard", p.shareToClipboard);
+  return p;
+}
+
+UiPrefs loadUiPrefs() {
+  try {
+    std::ifstream f(pathOf(uiPrefsPath()));
+    if (f) return UiPrefs::fromJson(json::parse(f));
+  } catch (...) {}
+  return {};
+}
+
+void saveUiPrefs(const UiPrefs& p) {
+  try {
+    auto path = pathOf(uiPrefsPath());
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream(path) << p.toJson().dump(2);
   } catch (...) {}
 }
 

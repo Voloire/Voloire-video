@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(voloire_video VERSION 1.0.1 LANGUAGES CXX)
+project(voloire_video VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -24,7 +24,7 @@ endif()
 
 add_library(vv_ffmpeg INTERFACE)
 target_include_directories(vv_ffmpeg SYSTEM INTERFACE ${VV_FFMPEG_ROOT}/include)
-foreach(lib avformat avcodec avutil swscale)
+foreach(lib avformat avcodec avutil swscale swresample)
   find_library(VV_FF_${lib} ${lib} PATHS ${VV_FFMPEG_ROOT}/lib NO_DEFAULT_PATH REQUIRED)
   target_link_libraries(vv_ffmpeg INTERFACE ${VV_FF_${lib}})
 endforeach()

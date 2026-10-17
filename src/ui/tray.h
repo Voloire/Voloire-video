@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QSystemTrayIcon>
 #include "common.h"
+#include "control_menu.h"
 #include "theme.h"
 
 namespace vv::ui {
@@ -24,6 +25,7 @@ class TrayController : public QObject {
 
   vv::json state();                                   // test hook: icon, tooltip, whole menu tree
   bool trigger(const std::vector<std::string>& path);  // test hook: click a menu entry by text path
+  ControlMenuHooks& hooks() { return hooks_; }         // main wires the status-bar half here
 
  private slots:
   void refresh();
@@ -32,14 +34,17 @@ class TrayController : public QObject {
  private:
   void updateIcon();
   void showPanel();
+  void checkShare();
 
   MainPanel* panel_;
   QSystemTrayIcon tray_;
   QMenu menu_;
+  ControlMenuHooks hooks_;  // the status-bar half of the shared menu; wired by main
   QAction* header_ = nullptr;
   QTimer* tick_;
   IconState iconState_ = IconState::Idle;
   bool pulseHigh_ = true;
+  std::string shareSeen_ = "idle";  // last share job state seen: balloons fire on the transition
 };
 
 }  // namespace vv::ui

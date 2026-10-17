@@ -6,13 +6,13 @@
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
-#include <QLinearGradient>
 #include <QMouseEvent>
-#include <QPainter>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QStyle>
 #include <QTimer>
@@ -53,7 +53,7 @@ MainPanel::MainPanel(vv::AppController& app, QWidget* parent) : QWidget(parent),
   setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
   setWindowTitle("Voloire-video");
   setWindowIcon(trayIcon(IconState::Recording));
-  resize(600, 860);
+  resize(600, 920);
   build();
   refreshSources();
 
@@ -112,7 +112,7 @@ void MainPanel::build() {
     f.setPixelSize(58);
     f.setBold(true);
     timerLabel_->setFont(f);
-    timerLabel_->setStyleSheet(QString("color:#5B7492; font-size:58px; font-weight:700; font-family:'%1';").arg(monoFamily()));
+    timerLabel_->setStyleSheet(QString("color:%1; font-size:58px; font-weight:700; font-family:'%2';").arg(col::dim.name(), monoFamily()));
     stateLabel_ = new QLabel("IDLE", this);
     stateLabel_->setObjectName("status");
     stateLabel_->setAlignment(Qt::AlignCenter);
@@ -128,7 +128,6 @@ void MainPanel::build() {
     recBtn_ = new QPushButton("REC", this);
     recBtn_->setObjectName("rec");
     pauseBtn_ = new QPushButton("PAUSE", this);
-    pauseBtn_->setObjectName("rec");
     btns->addWidget(recBtn_, 2);
     btns->addWidget(pauseBtn_, 1);
     box->addWidget(timerLabel_);
@@ -225,6 +224,18 @@ void MainPanel::build() {
     bitrate_->setSingleStep(1000);
     bitrate_->setValue(12000);
     bitrate_->setSuffix(" kbps");
+    qualityCombo_ = new QComboBox(this);
+    qualityCombo_->addItem("High", "high");
+    qualityCombo_->addItem("Standard", "standard");
+    qualityCombo_->addItem("Light", "light");
+    qualityCombo_->addItem("Minimal", "minimal");
+    qualityCombo_->addItem("Custom", "custom");
+    shareCombo_ = new QComboBox(this);
+    shareCombo_->addItem("Off", 0);
+    for (int mb : {10, 25, 50, 100}) shareCombo_->addItem(QString("%1 MB").arg(mb), mb);
+    outputCombo_ = new QComboBox(this);
+    outputCombo_->addItem("Record to file", "file");
+    outputCombo_->addItem("Stream to YouTube", "stream");
     dirEdit_ = new QLineEdit(QString::fromStdString(app_.config().outDir), this);
     auto* browse = new QPushButton("...", this);
     auto* open = new QPushButton("OPEN", this);
@@ -241,22 +252,79 @@ void MainPanel::build() {
     g->addWidget(fpsCombo_, 3, 1);
     g->addWidget(lab("BITRATE"), 2, 2);
     g->addWidget(bitrate_, 3, 2);
+    g->addWidget(lab("QUALITY"), 4, 0);
+    g->addWidget(qualityCombo_, 5, 0);
+    g->addWidget(lab("SHARE COPY"), 4, 1);
+    g->addWidget(shareCombo_, 5, 1);
+    g->addWidget(lab("OUTPUT"), 4, 2);
+    g->addWidget(outputCombo_, 5, 2);
     auto* dir = new QHBoxLayout();
     dir->addWidget(dirEdit_, 1);
     dir->addWidget(browse);
     dir->addWidget(open);
-    g->addWidget(lab("OUTPUT FOLDER"), 4, 0, 1, 3);
-    g->addLayout(dir, 5, 0, 1, 3);
+    g->addWidget(lab("OUTPUT FOLDER"), 6, 0, 1, 3);
+    g->addLayout(dir, 7, 0, 1, 3);
     body->addWidget(makeCard("OUTPUT", g, this));
-    for (auto* c : {containerCombo_, codecCombo_, encoderCombo_, resCombo_, fpsCombo_})
+    for (auto* c : {containerCombo_, codecCombo_, encoderCombo_, resCombo_, fpsCombo_, qualityCombo_})
       connect(c, &QComboBox::currentIndexChanged, this, [this] { persist(); });
-    connect(bitrate_, &QSpinBox::valueChanged, this, [this] { persist(); });
+    connect(outputCombo_, &QComboBox::currentIndexChanged, this, [this] {
+      streamCard_->setVisible(outputKind() == "stream");
+      persist();
+    });
+    connect(shareCombo_, &QComboBox::currentIndexChanged, this, [this] { setShareTarget(shareCombo_->currentData().toInt()); });
+    connect(bitrate_, &QSpinBox::valueChanged, this, [this] {
+      if (loading_) return;
+      int i = qualityCombo_->findData("custom");  // a hand-typed bitrate means the preset no longer applies
+      if (i >= 0 && qualityCombo_->currentIndex() != i) {
+        QSignalBlocker b(qualityCombo_);
+        qualityCombo_->setCurrentIndex(i);
+      }
+      persist();
+    });
     connect(dirEdit_, &QLineEdit::editingFinished, this, [this] { persist(); });
     connect(browse, &QPushButton::clicked, this, [this] {
       QString d = QFileDialog::getExistingDirectory(this, "Output folder", dirEdit_->text());
       if (!d.isEmpty()) { dirEdit_->setText(d); persist(); }
     });
     connect(open, &QPushButton::clicked, this, [this] { QDesktopServices::openUrl(QUrl::fromLocalFile(dirEdit_->text())); });
+  }
+
+  // Stream (YouTube): shown when the output is a stream.
+  {
+    auto* g = new QGridLayout();
+    g->setHorizontalSpacing(10);
+    g->setVerticalSpacing(8);
+    keyEdit_ = new QLineEdit(this);
+    keyEdit_->setEchoMode(QLineEdit::Password);
+    keyEdit_->setPlaceholderText("stream key (stored encrypted)");
+    keySave_ = new QPushButton("SAVE", this);
+    urlEdit_ = new QLineEdit(this);
+    urlEdit_->setPlaceholderText("rtmp://a.rtmp.youtube.com/live2");
+    streamKbps_ = new QSpinBox(this);
+    streamKbps_->setRange(1000, 51000);
+    streamKbps_->setSingleStep(1000);
+    streamKbps_->setSuffix(" kbps");
+    auto lab = [&](const char* t) { auto* l = new QLabel(t, this); l->setObjectName("sub"); return l; };
+    auto* keyRow = new QHBoxLayout();
+    keyRow->addWidget(keyEdit_, 1);
+    keyRow->addWidget(keySave_);
+    g->addWidget(lab("STREAM KEY"), 0, 0, 1, 2);
+    g->addLayout(keyRow, 1, 0, 1, 2);
+    g->addWidget(lab("INGEST URL"), 2, 0);
+    g->addWidget(lab("STREAM BITRATE"), 2, 1);
+    g->addWidget(urlEdit_, 3, 0);
+    g->addWidget(streamKbps_, 3, 1);
+    g->setColumnStretch(0, 2);
+    g->setColumnStretch(1, 1);
+    streamCard_ = makeCard("STREAM", g, this);
+    streamCard_->setVisible(false);
+    body->addWidget(streamCard_);
+    connect(urlEdit_, &QLineEdit::editingFinished, this, [this] { persist(); });
+    connect(streamKbps_, &QSpinBox::valueChanged, this, [this] { if (!loading_) persist(); });
+    connect(keySave_, &QPushButton::clicked, this, [this] {
+      if (keyEdit_->text().isEmpty()) return;
+      if (setStreamKey(keyEdit_->text().trimmed().toStdString())) keyEdit_->clear();  // nothing to show back
+    });
   }
   body->addStretch(1);
   loading_ = false;
@@ -270,7 +338,12 @@ void MainPanel::build() {
   pick(encoderCombo_, QString::fromStdString(s.encoder));
   pick(resCombo_, s.outHeight);
   pick(fpsCombo_, s.fps);
+  pick(qualityCombo_, QString::fromStdString(s.quality));
   bitrate_->setValue(s.bitrateKbps);
+  pick(outputCombo_, QString::fromStdString(s.output));
+  urlEdit_->setText(QString::fromStdString(s.streamUrl));
+  streamKbps_->setValue(s.streamBitrateKbps);
+  streamCard_->setVisible(s.output == "stream");
   dirEdit_->setText(QString::fromStdString(s.outDir));
   if (s.videoSource == "monitor") rbMonitor_->setChecked(true);
   else if (s.videoSource == "dxgi") rbDxgi_->setChecked(true);
@@ -352,7 +425,11 @@ vv::RecordConfig MainPanel::currentConfig() const {
   c.encoder = encoderCombo_->currentData().toString().toStdString();
   c.outHeight = resCombo_->currentData().toInt();
   c.fps = fpsCombo_->currentData().toInt();
+  c.quality = qualityCombo_->currentData().toString().toStdString();
   c.bitrateKbps = bitrate_->value();
+  c.output = outputCombo_->currentData().toString().toStdString();
+  c.streamUrl = urlEdit_->text().toStdString();
+  c.streamBitrateKbps = streamKbps_->value();
   c.outDir = dirEdit_->text().toStdString();
   if (!override_.empty()) {
     vv::json j = c.toJson();
@@ -390,6 +467,85 @@ void MainPanel::setHeight(int h) { int i = resCombo_->findData(h); if (i >= 0) r
 void MainPanel::setFps(int f) { int i = fpsCombo_->findData(f); if (i >= 0) fpsCombo_->setCurrentIndex(i); }
 void MainPanel::setMic(const QString& mode, const QString& id) { int i = micCombo_->findData(mode + "|" + id); if (i >= 0) micCombo_->setCurrentIndex(i); }
 void MainPanel::setSys(const QString& mode, const QString& id) { int i = sysCombo_->findData(mode + "|" + id); if (i >= 0) sysCombo_->setCurrentIndex(i); }
+void MainPanel::setQuality(const QString& v) { int i = qualityCombo_->findData(v); if (i >= 0) qualityCombo_->setCurrentIndex(i); }
+void MainPanel::setOutput(const QString& v) { int i = outputCombo_->findData(v); if (i >= 0) outputCombo_->setCurrentIndex(i); }
+QString MainPanel::outputKind() const { return outputCombo_ ? outputCombo_->currentData().toString() : QString("file"); }
+
+// The stream key lives in the controller (DPAPI blob under the settings dir): the panel, the
+// menu and the HUD only ever learn whether one is set.
+bool MainPanel::streamKeySet() {
+  vv::json r = app_.handle({{"cmd", "get_config"}});
+  return r.value("config", vv::json::object()).value("streamKeySet", false);
+}
+
+bool MainPanel::setStreamKey(const std::string& key) {
+  vv::json r = app_.handle({{"cmd", "set_stream_key"}, {"key", key}});
+  if (!r.value("ok", false)) showError(QString::fromStdString(r.value("error", std::string("cannot store the stream key"))));
+  else showError({});
+  emit changed();
+  return r.value("ok", false);
+}
+
+void MainPanel::clearStreamKey() { setStreamKey(""); }
+
+void MainPanel::promptStreamKey() {
+  bool ok = false;
+  QString k = QInputDialog::getText(this, "Stream key", "Paste the stream key from YouTube Studio > Go live:",
+                                    QLineEdit::Password, "", &ok);
+  if (ok && !k.trimmed().isEmpty()) setStreamKey(k.trimmed().toStdString());
+}
+
+vv::json MainPanel::streamStatus() const { return app_.recorder().status().value("stream", vv::json::object()); }
+
+void MainPanel::setPrefs(vv::UiPrefs* p) {
+  prefs_ = p;
+  if (shareCombo_ && prefs_) {
+    int i = shareCombo_->findData(prefs_->shareTargetMB);
+    if (i >= 0 && shareCombo_->currentIndex() != i) {
+      QSignalBlocker b(shareCombo_);
+      shareCombo_->setCurrentIndex(i);
+    }
+  }
+}
+
+void MainPanel::setShareTarget(int mb) {
+  if (prefs_) {
+    prefs_->shareTargetMB = mb;
+    vv::saveUiPrefs(*prefs_);
+  }
+  if (shareCombo_) {
+    int i = shareCombo_->findData(mb);
+    if (i >= 0 && shareCombo_->currentIndex() != i) {
+      QSignalBlocker b(shareCombo_);
+      shareCombo_->setCurrentIndex(i);
+    }
+  }
+  emit changed();
+}
+
+void MainPanel::setShareToClipboard(bool on) {
+  if (prefs_) {
+    prefs_->shareToClipboard = on;
+    vv::saveUiPrefs(*prefs_);
+  }
+  emit changed();
+}
+
+void MainPanel::shareLastRecording() {
+  if (lastRecording_.isEmpty()) return;
+  startShare(lastRecording_, shareTargetMB() > 0 ? shareTargetMB() : 25);
+}
+
+void MainPanel::startShare(const QString& path, int mb) {
+  vv::json r = app_.handle({{"cmd", "share"}, {"path", path.toStdString()}, {"targetMB", mb}});
+  if (!r.value("ok", false)) showError(QString::fromStdString(r.value("error", std::string("share copy did not start"))));
+  emit changed();
+}
+
+vv::json MainPanel::shareStatus() {
+  vv::json r = app_.handle({{"cmd", "share_status"}});
+  return r.contains("share") ? r["share"] : vv::json::object();
+}
 
 void MainPanel::useActiveNow() {
   if (lastForeground_.hwnd) {
@@ -457,6 +613,10 @@ void MainPanel::stopRecording() {
     vv::RecResult r = app_.recorder().stop();
     QMetaObject::invokeMethod(this, [this, r] {
       if (!r.error.empty()) showError(QString::fromStdString(r.error));
+      else if (!r.path.empty()) {
+        lastRecording_ = QString::fromStdString(r.path);
+        if (shareTargetMB() > 0) startShare(lastRecording_, shareTargetMB());  // Share copy > N MB
+      }
       emit changed();
     }, Qt::QueuedConnection);
   }).detach();
@@ -483,7 +643,7 @@ void MainPanel::poll() {
   pauseBtn_->setEnabled(s == RecState::Recording || s == RecState::Paused);
   pauseBtn_->setText(s == RecState::Paused ? "RESUME" : "PAUSE");
   timerLabel_->setStyleSheet(QString("color:%1; font-size:58px; font-weight:700; font-family:'%2';")
-                                 .arg(s == RecState::Paused ? "#58AEFF" : s == RecState::Idle ? "#5B7492" : "#00F0FF", monoFamily()));
+                                 .arg(s == RecState::Paused ? col::paused.name() : s == RecState::Idle ? col::dim.name() : col::text.name(), monoFamily()));
 
   auto m = vv::Telemetry::get().snapshot();
   auto num = [&](const char* k, double d) { return m.contains(k) ? m[k].get<double>() : d; };
@@ -498,18 +658,8 @@ void MainPanel::poll() {
       showError(QString::fromStdString(app_.recorder().lastError()));
     emit changed();
   }
-  for (auto* w : {sysCombo_, micCombo_, containerCombo_, codecCombo_, encoderCombo_, resCombo_, fpsCombo_, winCombo_, monCombo_})
+  for (QWidget* w : std::initializer_list<QWidget*>{sysCombo_, micCombo_, containerCombo_, codecCombo_, encoderCombo_, resCombo_, fpsCombo_, qualityCombo_, shareCombo_, winCombo_, monCombo_, outputCombo_, streamKbps_, urlEdit_, keyEdit_, keySave_})
     w->setEnabled(s == RecState::Idle && !starting_);
-}
-
-void MainPanel::paintEvent(QPaintEvent* e) {
-  QWidget::paintEvent(e);
-  QPainter p(this);
-  QLinearGradient g(0, 0, width(), 0);
-  g.setColorAt(0, col::cyan);
-  g.setColorAt(0.5, col::neon);
-  g.setColorAt(1, QColor(0, 180, 255, 0));
-  p.fillRect(QRect(0, 0, width(), 2), g);
 }
 
 bool MainPanel::eventFilter(QObject* o, QEvent* e) {

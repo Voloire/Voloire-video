@@ -1,6 +1,8 @@
 #include "app_controller.h"
 #include <algorithm>
+#include <filesystem>
 #include "devices.h"
+#include "secrets.h"
 #include "telemetry.h"
 
 namespace vv {
@@ -75,11 +77,22 @@ json AppController::handle(const json& req) {
   if (cmd == "status") {
     json s = rec_.status();
     s["ok"] = true;
+    s["share"] = shareStatus();
     return s;
   }
   if (cmd == "metrics") return {{"ok", true}, {"metrics", Telemetry::get().snapshot()}};
   if (cmd == "logs") return {{"ok", true}, {"logs", Telemetry::get().tailLogs(req.value("n", 100))}};
-  if (cmd == "get_config") return {{"ok", true}, {"config", config().toJson()}};
+  if (cmd == "get_config") {
+    json c = config().toJson();
+    c["streamKeySet"] = !loadSecret("stream_key").empty();  // the key itself never leaves the machine
+    return {{"ok", true}, {"config", c}};
+  }
+  if (cmd == "set_stream_key") {
+    std::string k = req.value("key", std::string());
+    if (k.empty()) deleteSecret("stream_key");
+    else if (!saveSecret("stream_key", k)) return err("cannot store the stream key");
+    return {{"ok", true}, {"streamKeySet", !k.empty()}};
+  }
   if (cmd == "set_config") {
     json merged = config().toJson();
     merged.update(req.value("config", json::object()), true);
@@ -107,6 +120,8 @@ json AppController::handle(const json& req) {
     j["metrics"] = Telemetry::get().snapshot();
     return j;
   }
+  if (cmd == "share") return shareStart(req.value("path", std::string()), req.value("targetMB", 0));
+  if (cmd == "share_status") return {{"ok", true}, {"share", shareStatus()}};
   if (cmd == "shutdown") {
     if (onShutdown) onShutdown();
     return {{"ok", true}};
@@ -116,6 +131,54 @@ json AppController::handle(const json& req) {
     if (!r.is_null()) return r;
   }
   return err("unknown command: " + cmd);
+}
+
+AppController::~AppController() {
+  shareCancel_ = true;
+  if (shareThread_.joinable()) shareThread_.join();
+}
+
+json AppController::shareStatus() {
+  std::lock_guard lk(shareMu_);
+  return {{"state", shareState_}, {"progress", shareProgress_}, {"path", sharePath_},
+          {"bytes", shareBytes_},   {"error", shareError_}};
+}
+
+json AppController::shareStart(const std::string& path, int targetMB) {
+  if (path.empty() || targetMB <= 0) return err("share needs a path and a positive targetMB");
+  {
+    std::lock_guard lk(shareMu_);
+    if (shareState_ == "running") return err("a share copy is already running");
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec)) return err("no such file: " + path);
+    shareState_ = "running";
+    shareProgress_ = 0;
+    sharePath_.clear();
+    shareError_.clear();
+    shareBytes_ = 0;
+  }
+  if (shareThread_.joinable()) shareThread_.join();
+  shareCancel_ = false;
+  shareThread_ = std::thread([this, path, targetMB] {
+    ShareResult r = makeShareCopy(
+        path, targetMB,
+        [this](double p) {
+          std::lock_guard lk(shareMu_);
+          shareProgress_ = p;
+        },
+        &shareCancel_);
+    std::lock_guard lk(shareMu_);
+    if (r.error.empty()) {
+      shareState_ = "done";
+      sharePath_ = r.path;
+      shareBytes_ = r.bytes;
+      shareProgress_ = 1;
+    } else {
+      shareState_ = "error";
+      shareError_ = r.error;
+    }
+  });
+  return {{"ok", true}, {"share", shareStatus()}};
 }
 
 }  // namespace vv
