@@ -8,6 +8,7 @@
 #include "app_controller.h"
 #include "control.h"
 #include "crash_handler.h"
+#include "hud.h"
 #include "panel.h"
 #include "telemetry.h"
 #include "theme.h"
@@ -18,7 +19,7 @@ using namespace vv::ui;
 
 namespace {
 
-json screenshots(MainPanel& panel, TrayController& tray, const QString& dir) {
+json screenshots(MainPanel& panel, TrayController& tray, HudBar& hud, const QString& dir) {
   QDir().mkpath(dir);
   json out = json::array();
   auto save = [&](const QPixmap& pm, const QString& name) {
@@ -32,6 +33,8 @@ json screenshots(MainPanel& panel, TrayController& tray, const QString& dir) {
   tray.rebuildMenu();
   tray.menu()->adjustSize();
   save(tray.menu()->grab(), "menu.png");
+  save(hud.grab(), "hud.png");
+  if (hud.isVisible()) save(hud.grab(), QString("hud_%1.png").arg(QString::fromStdString(hud.dotName())));
   for (auto sn : {std::pair{IconState::Idle, "tray_idle.png"}, std::pair{IconState::Recording, "tray_recording.png"},
                   std::pair{IconState::Paused, "tray_paused.png"}, std::pair{IconState::Error, "tray_error.png"}})
     save(trayPixmap(sn.first, 64), sn.second);
@@ -74,10 +77,15 @@ int main(int argc, char** argv) {
   AppController ctl;
   ctl.setConfig(loadSettings());
   MainPanel panel(ctl);
+  UiPrefs uiPrefs = loadUiPrefs();
+  HudBar hud(&panel, &uiPrefs);
   TrayController tray(&panel);
+  tray.hooks().hudVisible = [&uiPrefs] { return uiPrefs.hud; };
+  tray.hooks().setHudVisible = [&hud](bool on) { hud.setShown(on); };
+  if (uiPrefs.hud) hud.show();
 
   if (!shotDir.isEmpty()) {
-    json r = screenshots(panel, tray, shotDir);
+    json r = screenshots(panel, tray, hud, shotDir);
     std::puts(r.dump().c_str());
     return 0;
   }
@@ -92,12 +100,19 @@ int main(int argc, char** argv) {
     QMetaObject::invokeMethod(&app, [&] {
       if (cmd == "ui_state") {
         result = tray.state();
+        result["hud"] = hud.state();
         result["ok"] = true;
       } else if (cmd == "ui_trigger") {
         std::vector<std::string> path = req.value("path", std::vector<std::string>{});
-        bool ok = tray.trigger(path);
+        bool ok = req.value("surface", std::string("tray")) == "hud" ? hud.trigger(path) : tray.trigger(path);
         result = {{"ok", ok}};
         if (!ok) result["error"] = "menu entry not found or disabled";
+      } else if (cmd == "ui_hud") {
+        if (req.contains("visible")) hud.setShown(req["visible"].get<bool>());
+        if (req.contains("x") && req.contains("y")) hud.moveTo(req["x"].get<int>(), req["y"].get<int>());
+        if (req.contains("testPattern")) hud.setTestPattern(req["testPattern"].get<bool>());
+        if (req.contains("exclude")) hud.setExcludeFromCapture(req["exclude"].get<bool>());
+        result = {{"ok", true}};
       } else if (cmd == "ui_show") {
         panel.show();
         result = {{"ok", true}};
@@ -108,7 +123,7 @@ int main(int argc, char** argv) {
         panel.setOverride(req.value("config", json::object()));
         result = {{"ok", true}};
       } else if (cmd == "ui_screenshot") {
-        result = {{"ok", true}, {"files", screenshots(panel, tray, QString::fromStdString(req.value("dir", std::string("shots"))))}};
+        result = {{"ok", true}, {"files", screenshots(panel, tray, hud, QString::fromStdString(req.value("dir", std::string("shots"))))}};
       } else if (cmd == "ui_refresh") {
         panel.refreshSources();
         result = {{"ok", true}};

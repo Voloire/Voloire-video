@@ -541,6 +541,175 @@ def sc_ui(out):
     return rep
 
 
+def _frame_rgb(path, t):
+    """One decoded frame at t seconds as an (h, w, 3) uint8 array."""
+    info = probe(path)
+    s = streams(info, "video")[0]
+    p = subprocess.run([FFMPEG, "-v", "error", "-ss", str(t), "-i", str(path), "-frames:v", "1",
+                        "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True)
+    return np.frombuffer(p.stdout, dtype=np.uint8).reshape(s["height"], s["width"], 3)
+
+
+def _magenta_share(frame):
+    if frame.size == 0:
+        return None
+    px = frame.astype(int)
+    return float(((px[..., 0] > 180) & (px[..., 1] < 80) & (px[..., 2] > 180)).mean())
+
+
+def sc_hud(out):
+    rep = Report("hud")
+    d = out / "hud"
+    d.mkdir(parents=True, exist_ok=True)
+    import ctypes
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # physical pixels from GetSystemMetrics
+    except Exception:
+        pass
+    width = ctypes.windll.user32.GetSystemMetrics(0)
+    height = ctypes.windll.user32.GetSystemMetrics(1)
+
+    def wait_state(c, want, timeout=20):
+        end = time.time() + timeout
+        while time.time() < end:
+            if c.call(cmd="ui_state")["state"] == want:
+                return True
+            time.sleep(0.2)
+        return False
+
+    subj = Subject(d, title="VV TestSubject HUD", hz=440)
+    gui = Gui(d, "vv-e2e-hud")
+    try:
+        c = gui.c
+
+        def hud_state():
+            return c.call(cmd="ui_state").get("hud") or {}
+
+        rep.check("gui answers ping over the control pipe", c.call(cmd="ping")["ok"])
+        c.call(cmd="ui_override",
+               config={"outDir": str(d / "rec"), "name": "hud", "mic": "none", "sys": "none", "fps": 30,
+                       "telemetryDir": str(d / "telemetry")})
+        hud = hud_state()
+        rep.check("hud: ui_state carries the bar", bool(hud), sorted(hud.keys()))
+        rep.check("hud: visible and idle", hud.get("visible") is True and hud.get("dot") == "idle", hud.get("dot"))
+        rep.check("hud: excluded from capture", hud.get("excludedFromCapture") is True)
+        x, y, w, h = (hud.get(k, -1) for k in ("x", "y", "w", "h"))
+        rep.check("hud: inside the primary monitor",
+                  0 <= x and 0 <= y and w > 0 and h > 0 and x + w <= width and y + h <= height,
+                  (x, y, w, h, width, height))
+        rep.check("hud: within 40 px of the screen top", 0 <= y <= 40, y)
+
+        # One shared menu: the bar's copy drives the same settings as the tray's.
+        rep.check("hud menu: Format > Codec > HEVC",
+                  c.call(cmd="ui_trigger", path=["Format", "Codec", "HEVC (H.265)"], surface="hud")["ok"])
+        rep.check("hud menu drove the config", c.call(cmd="get_config")["config"]["codec"] == "hevc")
+        s = c.call(cmd="ui_state")
+        tray_menu, hud_menu = s.get("menu", []), (s.get("hud") or {}).get("menu", [])
+        rep.check("hud and tray share one menu below the header line",
+                  bool(hud_menu) and hud_menu == tray_menu[2:], f"hud {len(hud_menu)} vs tray {len(tray_menu)} entries")
+        c.call(cmd="ui_trigger", path=["Format", "Codec", "H.264"], surface="hud")
+
+        shots = c.call(cmd="ui_screenshot", dir=str(d / "shots"))
+        rep.check("screenshots written", shots.get("ok") and all(f.get("ok") for f in shots.get("files", [])))
+        idle_png = d / "shots" / "hud_idle.png"
+        rep.check("hud_idle.png written", idle_png.exists() and idle_png.stat().st_size > 0)
+        if idle_png.exists():
+            rep.check("hud_idle.png has pill pixels", int(png_rgb(idle_png).max()) > 100)
+
+        # Record a window from the bar's menu.
+        s = c.call(cmd="ui_state")
+        src = [m for m in s["menu"] if m.get("text") == "Source"][0]["menu"]
+        item = [m["text"] for m in src if "VV TestSubject HUD" in m.get("text", "")][0]
+        rep.check("menu: Source > test window", c.call(cmd="ui_trigger", path=["Source", item])["ok"])
+        c.call(cmd="ui_hide")
+        rep.check("hud menu: Start recording", c.call(cmd="ui_trigger", path=["Start recording"], surface="hud")["ok"])
+        rep.check("hud: reaches recording", wait_state(c, "recording", 15), hud_state().get("dot"))
+        t1 = hud_state().get("timer")
+        rep.check("hud: recording dot", hud_state().get("dot") == "recording", hud_state().get("dot"))
+        time.sleep(2.2)
+        t2 = hud_state().get("timer")
+        rep.check("hud: timer advances >= 2 s", (t2 or "") >= "00:00:02" and t1 != t2, f"{t1} -> {t2}")
+        c.call(cmd="ui_screenshot", dir=str(d / "shots"))
+        rec_png = d / "shots" / "hud_recording.png"
+        rep.check("hud_recording.png written", rec_png.exists() and rec_png.stat().st_size > 0)
+        c.call(cmd="ui_hide")
+        rep.check("hud menu: Pause", c.call(cmd="ui_trigger", path=["Pause"], surface="hud")["ok"])
+        time.sleep(0.4)
+        rep.check("hud: paused dot", hud_state().get("dot") == "paused")
+        rep.check("hud menu: Stop recording", c.call(cmd="ui_trigger", path=["Stop recording"], surface="hud")["ok"])
+        rep.check("hud: back to idle", wait_state(c, "idle", 20))
+        rep.check("hud: idle dot after the stop", hud_state().get("dot") == "idle")
+        files = sorted((d / "rec").glob("hud_*.mkv"))
+        if rep.check("recording through the bar produced a file", len(files) == 1, [f.name for f in files]):
+            rep.check("recording decodes clean", decodes_clean(files[0]))
+
+        # Capture exclusion, both ways, over a monitor recording.
+        def monitor_shot(name):
+            c.call(cmd="ui_override", config={"outDir": str(d / "rec"), "name": name, "mic": "none", "sys": "none", "fps": 30,
+                                              "videoSource": "monitor", "monitor": 0, "telemetryDir": str(d / "telemetry")})
+            c.call(cmd="ui_trigger", path=["Start recording"])
+            wait_state(c, "recording", 15)
+            time.sleep(2.2)
+            c.call(cmd="ui_trigger", path=["Stop recording"])
+            wait_state(c, "idle", 20)
+            fs = sorted((d / "rec").glob(name + "_*.mkv"))
+            return fs[-1] if fs else None
+
+        def crop_magenta(path):
+            info = probe(path)
+            v = streams(info, "video")[0]
+            hud = hud_state()
+            if not all(k in hud for k in ("x", "y", "w", "h")):
+                return None, (0, 0)
+            sx, sy = v["width"] / width, v["height"] / height  # physical screen -> frame pixels
+            fr = _frame_rgb(path, min(1.0, float(info["format"]["duration"]) / 2))
+            x0, y0 = max(0, int(hud["x"] * sx)), max(0, int(hud["y"] * sy))
+            x1, y1 = int((hud["x"] + hud["w"]) * sx), int((hud["y"] + hud["h"]) * sy)
+            return _magenta_share(fr[y0:y1, x0:x1]), (x1 - x0, y1 - y0)
+
+        c.call(cmd="ui_hud", testPattern=True)
+        shot = monitor_shot("excl")
+        if rep.check("exclusion: monitor recording produced", shot is not None):
+            share, dims = crop_magenta(shot)
+            rep.check("exclusion: the test pattern stays out of the capture",
+                      share is not None and share < 0.005, f"{share} of {dims}")
+        c.call(cmd="ui_hud", exclude=False)
+        shot = monitor_shot("exclctl")
+        if rep.check("exclusion control: monitor recording produced", shot is not None):
+            share, dims = crop_magenta(shot)
+            rep.check("exclusion control: the test pattern is visible in the capture",
+                      share is not None and share > 0.2, f"{share} of {dims}")
+        c.call(cmd="ui_hud", exclude=True, testPattern=False)
+
+        # A position off every screen snaps back to the default at the next start.
+        c.call(cmd="ui_hud", x=-5000, y=-5000)
+    finally:
+        gui.close()
+
+    gui = Gui(d, "vv-e2e-hud-r1")
+    try:
+        c = gui.c
+        hud = c.call(cmd="ui_state").get("hud") or {}
+        x, y, w, h = (hud.get(k, -1) for k in ("x", "y", "w", "h"))
+        rep.check("hud: off-screen position snapped back to a monitor",
+                  w > 0 and h > 0 and x + w > 0 and y + h > 0 and x < width and y < height, (x, y, w, h))
+        rep.check("hud: visible after the relaunch", hud.get("visible") is True)
+        rep.check("menu: Show status bar unchecked", c.call(cmd="ui_trigger", path=["Show status bar"])["ok"])
+        time.sleep(0.3)
+        rep.check("hud: hidden after unchecking",
+                  ((c.call(cmd="ui_state").get("hud") or {}).get("visible")) is False)
+    finally:
+        gui.close()
+    gui = Gui(d, "vv-e2e-hud-r2")
+    try:
+        rep.check("hud: still hidden after the next relaunch",
+                  ((gui.c.call(cmd="ui_state").get("hud") or {}).get("visible")) is False)
+    finally:
+        gui.close()
+    subj.stop()
+    return rep
+
+
 def sc_harness_selftest(out):
     from fakes import selftest
     return selftest.run(out)
@@ -565,6 +734,7 @@ SCENARIOS = {
     "source_closed": sc_source_closed,
     "errors": sc_errors,
     "ui": sc_ui,
+    "hud": sc_hud,
     "soak": sc_longer_soak,
     "installers": sc_installers,
 }

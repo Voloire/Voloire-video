@@ -21,7 +21,20 @@ inline const QColor text(0xD6, 0xEC, 0xFF);
 inline const QColor alert(0xFF, 0x3D, 0x6E);
 }  // namespace col
 
+// The status bar and the shared control menus: sage on near-black, red recording dot
+// (docs/design/palette.png, "Menu dark").
+namespace hud {
+inline const QColor bg(0x14, 0x20, 0x1E);
+inline const QColor surface(0x2F, 0x36, 0x33);
+inline const QColor accent(0x15, 0x42, 0x39);
+inline const QColor tint(0xD6, 0xE4, 0xD6);
+inline const QColor muted(0x8A, 0x95, 0x90);
+inline const QColor rec(0xEF, 0x27, 0x46);
+inline const QColor paused(0xFF, 0xB0, 0x00);
+}  // namespace hud
+
 QString styleSheet();
+QString hudMenuStyleSheet();  // the shared control menus, in the hud tokens
 void loadFonts(const QString& dir);  // Ubuntu, Ubuntu Mono
 QString monoFamily();
 

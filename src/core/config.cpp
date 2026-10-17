@@ -107,4 +107,39 @@ void saveSettings(const RecordConfig& c) {
   } catch (...) {}
 }
 
+namespace {
+std::string uiPrefsPath() { return strOf(pathOf(settingsPath()).parent_path() / "ui.json"); }
+}  // namespace
+
+json UiPrefs::toJson() const {
+  return {{"hud", hud}, {"hudX", hudX}, {"hudY", hudY},
+          {"shareTargetMB", shareTargetMB}, {"shareToClipboard", shareToClipboard}};
+}
+
+UiPrefs UiPrefs::fromJson(const json& j) {
+  UiPrefs p;
+  get(j, "hud", p.hud);
+  get(j, "hudX", p.hudX);
+  get(j, "hudY", p.hudY);
+  get(j, "shareTargetMB", p.shareTargetMB);
+  get(j, "shareToClipboard", p.shareToClipboard);
+  return p;
+}
+
+UiPrefs loadUiPrefs() {
+  try {
+    std::ifstream f(pathOf(uiPrefsPath()));
+    if (f) return UiPrefs::fromJson(json::parse(f));
+  } catch (...) {}
+  return {};
+}
+
+void saveUiPrefs(const UiPrefs& p) {
+  try {
+    auto path = pathOf(uiPrefsPath());
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream(path) << p.toJson().dump(2);
+  } catch (...) {}
+}
+
 }  // namespace vv

@@ -63,6 +63,18 @@ QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
 )";
 }
 
+QString hudMenuStyleSheet() {
+  return R"(
+QMenu { background: #14201E; border: 1px solid #2F3633; padding: 4px; }
+QMenu::item { padding: 6px 26px 6px 22px; border: 1px solid transparent; color: #D6E4D6; }
+QMenu::item:selected { background: #154239; border: 1px solid #2F3633; color: #D6E4D6; }
+QMenu::item:disabled { color: #8A9590; }
+QMenu::separator { height: 1px; background: #2F3633; margin: 4px 6px; }
+QMenu::indicator { width: 10px; height: 10px; margin-left: 6px; }
+QMenu::indicator:checked { background: #154239; border: 1px solid #D6E4D6; border-radius: 5px; }
+)";
+}
+
 QPixmap trayPixmap(IconState s, int size, double pulse) {
   QPixmap pm(size, size);
   pm.fill(Qt::transparent);

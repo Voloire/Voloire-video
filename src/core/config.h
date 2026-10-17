@@ -45,4 +45,16 @@ std::string settingsPath();
 RecordConfig loadSettings();
 void saveSettings(const RecordConfig& c);
 
+// UI-only preferences, kept in ui.json beside config.json.
+struct UiPrefs {
+  bool hud = true;
+  int hudX = -1, hudY = -1;   // -1: never placed, use the default position
+  int shareTargetMB = 0;      // 0 = off (Task 5)
+  bool shareToClipboard = true;
+  json toJson() const;
+  static UiPrefs fromJson(const json& j);
+};
+UiPrefs loadUiPrefs();
+void saveUiPrefs(const UiPrefs& p);
+
 }  // namespace vv
