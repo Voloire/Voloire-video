@@ -33,8 +33,11 @@ json RecordConfig::toJson() const {
           {"outHeight", outHeight},     {"fps", fps},       {"bitrateKbps", bitrateKbps},
           {"outDir", outDir},           {"name", name},     {"synthSysHz", synthSysHz},
           {"synthMicHz", synthMicHz},   {"synthFps", synthFps},
-          {"output", output},           {"streamUrl", streamUrl}, {"streamBitrateKbps", streamBitrateKbps},
-          {"streamHeight", streamHeight},
+          {"output", output},           {"streamChannel", streamChannel},
+          {"streamUrl", streamUrl},     {"streamBitrateKbps", streamBitrateKbps},
+          {"streamHeight", streamHeight}, {"recordWhileStreaming", recordWhileStreaming},
+          {"sysVolumePct", sysVolumePct}, {"micVolumePct", micVolumePct},
+          {"sysMuted", sysMuted},       {"micMuted", micMuted},
           {"telemetryDir", telemetryDir}};
 }
 
@@ -48,8 +51,12 @@ RecordConfig RecordConfig::fromJson(const json& j) {
   get(j, "outHeight", c.outHeight);     get(j, "fps", c.fps);     get(j, "bitrateKbps", c.bitrateKbps);
   get(j, "outDir", c.outDir);           get(j, "name", c.name);   get(j, "synthSysHz", c.synthSysHz);
   get(j, "synthMicHz", c.synthMicHz);   get(j, "synthFps", c.synthFps);
-  get(j, "output", c.output);           get(j, "streamUrl", c.streamUrl);
+  get(j, "output", c.output);           get(j, "streamChannel", c.streamChannel);
+  get(j, "streamUrl", c.streamUrl);
   get(j, "streamBitrateKbps", c.streamBitrateKbps); get(j, "streamHeight", c.streamHeight);
+  get(j, "recordWhileStreaming", c.recordWhileStreaming);
+  get(j, "sysVolumePct", c.sysVolumePct); get(j, "micVolumePct", c.micVolumePct);
+  get(j, "sysMuted", c.sysMuted);       get(j, "micMuted", c.micMuted);
   get(j, "telemetryDir", c.telemetryDir);
   return c;
 }
@@ -122,10 +129,27 @@ namespace {
 std::string uiPrefsPath() { return strOf(pathOf(settingsPath()).parent_path() / "ui.json"); }
 }  // namespace
 
+json StreamChannel::toJson() const {
+  return {{"id", id}, {"label", label}, {"studioUrl", studioUrl}, {"streamUrl", streamUrl}};
+}
+
+StreamChannel StreamChannel::fromJson(const json& j) {
+  StreamChannel c;
+  get(j, "id", c.id);
+  get(j, "label", c.label);
+  get(j, "studioUrl", c.studioUrl);
+  get(j, "streamUrl", c.streamUrl);
+  if (c.id.empty()) c.id = "default";
+  if (c.label.empty()) c.label = "Main Channel";
+  return c;
+}
+
 json UiPrefs::toJson() const {
+  json ch = json::array();
+  for (const auto& c : channels) ch.push_back(c.toJson());
   return {{"hud", hud}, {"hudX", hudX}, {"hudY", hudY},
           {"shareTargetMB", shareTargetMB}, {"shareToClipboard", shareToClipboard},
-          {"darkTheme", darkTheme}};
+          {"darkTheme", darkTheme}, {"channels", ch}};
 }
 
 UiPrefs UiPrefs::fromJson(const json& j) {
@@ -136,15 +160,22 @@ UiPrefs UiPrefs::fromJson(const json& j) {
   get(j, "shareTargetMB", p.shareTargetMB);
   get(j, "shareToClipboard", p.shareToClipboard);
   get(j, "darkTheme", p.darkTheme);
+  auto it = j.find("channels");
+  if (it != j.end() && it->is_array()) {
+    for (const auto& item : *it) p.channels.push_back(StreamChannel::fromJson(item));
+  }
+  if (p.channels.empty()) p.channels.push_back(StreamChannel{});
   return p;
 }
 
 UiPrefs loadUiPrefs() {
+  UiPrefs p;
   try {
     std::ifstream f(pathOf(uiPrefsPath()));
-    if (f) return UiPrefs::fromJson(json::parse(f));
+    if (f) p = UiPrefs::fromJson(json::parse(f));
   } catch (...) {}
-  return {};
+  if (p.channels.empty()) p.channels.push_back(StreamChannel{});
+  return p;
 }
 
 void saveUiPrefs(const UiPrefs& p) {

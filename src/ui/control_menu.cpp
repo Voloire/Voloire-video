@@ -226,10 +226,12 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
     grp->addAction(radio(out, "Stream to YouTube", c.output == "stream", [p] { p->setOutput("stream"); }));
   }
 
-  // YouTube: the key (its fate is the only thing shown) and the studio page.
+  // YouTube: the key (its fate is the only thing shown), the studio page for the active channel,
+  // and quick switching between saved YouTube channels.
   QMenu* yt = menu.addMenu("YouTube");
   QAction* ytInfo = nullptr;
   QAction* ytClear = nullptr;
+  QAction* ytStudio = nullptr;
   {
     const bool keySet = panel.streamKeySet();
     ytInfo = yt->addAction(keySet ? "Stream key: set" : "Stream key: not set");
@@ -242,10 +244,28 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
     ytClear->setProperty("keepOpen", true);
     QObject::connect(ytClear, &QAction::triggered, &menu, [p] { p->clearStreamKey(); });
     yt->addSeparator();
-    QAction* studio = yt->addAction("Open YouTube Studio");
-    QObject::connect(studio, &QAction::triggered, &menu, [] {
-      QDesktopServices::openUrl(QUrl("https://studio.youtube.com/"));  // write the title, copy the key
-    });
+    ytStudio = yt->addAction("Open YouTube Studio");
+    ytStudio->setToolTip(QString("Open YouTube Studio for %1").arg(panel.activeChannelLabel()));
+    QObject::connect(ytStudio, &QAction::triggered, &menu, [p] { p->openYouTubeStudio(); });
+    yt->addSeparator();
+    QAction* chHdr = yt->addAction("Destination channel:");
+    chHdr->setEnabled(false);
+    auto* chGrp = new QActionGroup(yt);
+    QString curCh = panel.activeChannelId();
+    for (const auto& ch : panel.channels()) {
+      QString cid = QString::fromStdString(ch.id);
+      QString lbl = QString::fromStdString(ch.label);
+      QAction* ca = yt->addAction(lbl);
+      ca->setCheckable(true);
+      ca->setChecked(cid == curCh);
+      ca->setEnabled(idle);
+      ca->setProperty("keepOpen", true);
+      chGrp->addAction(ca);
+      QObject::connect(ca, &QAction::triggered, &menu, [p, cid] { p->selectChannel(cid); });
+    }
+    QAction* addCh = yt->addAction("Add YouTube channel...");
+    addCh->setEnabled(idle);
+    QObject::connect(addCh, &QAction::triggered, &menu, [p] { p->promptAddChannel(); });
   }
 
   // Audio devices
@@ -271,6 +291,16 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
   };
   audioMenu("MIC", false);
   audioMenu("SYS", true);
+  QAction* muteMic = menu.addAction("Mute microphone");
+  muteMic->setCheckable(true);
+  muteMic->setChecked(panel.micMuted());
+  muteMic->setProperty("keepOpen", true);
+  QObject::connect(muteMic, &QAction::triggered, &menu, [p](bool on) { p->setMicMuted(on); });
+  QAction* muteSys = menu.addAction("Mute system audio");
+  muteSys->setCheckable(true);
+  muteSys->setChecked(panel.sysMuted());
+  muteSys->setProperty("keepOpen", true);
+  QObject::connect(muteSys, &QAction::triggered, &menu, [p](bool on) { p->setSysMuted(on); });
 
   menu.addSeparator();
   QAction* hud = menu.addAction("Show status bar");
@@ -291,7 +321,7 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
     });
   });
 
-  auto* stayFilter = new MenuStayOpenFilter(&menu, [p, startStop, pause, ytInfo, ytClear] {
+  auto* stayFilter = new MenuStayOpenFilter(&menu, [p, startStop, pause, ytInfo, ytClear, ytStudio, muteMic, muteSys] {
     const RS s = p->recState();
     const bool isStream = p->outputKind() == "stream";
     const bool keyOk = p->streamKeySet();
@@ -301,6 +331,9 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
     pause->setEnabled((s == RS::Recording || s == RS::Paused) && !isStream);
     if (ytInfo) ytInfo->setText(keyOk ? "Stream key: set" : "Stream key: not set");
     if (ytClear) ytClear->setEnabled(s == RS::Idle && !p->starting() && keyOk);
+    if (ytStudio) ytStudio->setToolTip(QString("Open YouTube Studio for %1").arg(p->activeChannelLabel()));
+    if (muteMic) muteMic->setChecked(p->micMuted());
+    if (muteSys) muteSys->setChecked(p->sysMuted());
   });
   menu.installEventFilter(stayFilter);
   for (QMenu* m : menu.findChildren<QMenu*>()) m->installEventFilter(stayFilter);

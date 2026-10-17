@@ -13,6 +13,9 @@ std::string lower(std::string s) {
   return s;
 }
 json err(const std::string& m) { return {{"ok", false}, {"error", m}}; }
+std::string streamSecretName(const std::string& ch) {
+  return (ch.empty() || ch == "default") ? "stream_key" : ("stream_key_" + ch);
+}
 }  // namespace
 
 AppController::AppController() { cfg_.outDir = defaultOutDir(); }
@@ -84,14 +87,17 @@ json AppController::handle(const json& req) {
   if (cmd == "logs") return {{"ok", true}, {"logs", Telemetry::get().tailLogs(req.value("n", 100))}};
   if (cmd == "get_config") {
     json c = config().toJson();
-    c["streamKeySet"] = !loadSecret("stream_key").empty();  // the key itself never leaves the machine
+    std::string ch = req.value("channel", c.value("streamChannel", std::string("default")));
+    c["streamKeySet"] = !loadSecret(streamSecretName(ch)).empty();  // the key itself never leaves the machine
     return {{"ok", true}, {"config", c}};
   }
   if (cmd == "set_stream_key") {
     std::string k = req.value("key", std::string());
-    if (k.empty()) deleteSecret("stream_key");
-    else if (!saveSecret("stream_key", k)) return err("cannot store the stream key");
-    return {{"ok", true}, {"streamKeySet", !k.empty()}};
+    std::string ch = req.value("channel", config().streamChannel);
+    std::string sec = streamSecretName(ch);
+    if (k.empty()) deleteSecret(sec);
+    else if (!saveSecret(sec, k)) return err("cannot store the stream key");
+    return {{"ok", true}, {"streamKeySet", !k.empty()}, {"channel", ch}};
   }
   if (cmd == "set_config") {
     json merged = config().toJson();

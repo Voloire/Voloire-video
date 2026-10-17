@@ -42,6 +42,7 @@ class Recorder {
   // One-shot key for this process (CLI --stream-key); when empty, the stored DPAPI secret is
   // used. Never persisted, never logged, never part of RecordConfig.
   void setStreamKey(const std::string& k) { streamKeyOverride_ = k; }
+  void setAudioMix(int sysPct, int micPct, bool sysMute, bool micMute);
 
   RecState state() const { return state_; }
   int64_t elapsedUs() const;  // recording time, pauses excluded
@@ -85,12 +86,15 @@ class Recorder {
   mutable std::mutex timeMu_;   // guards the timeline fields
   std::atomic<RecState> state_{RecState::Idle};
   RecordConfig cfg_;
-  std::string path_, telemetryDir_, streamTarget_;
+  std::string path_, localPath_, telemetryDir_, streamTarget_;
   std::shared_ptr<Muxer> mux_;  // swapped by the reconnect thread under muxMu_
+  std::shared_ptr<Muxer> localMux_;  // optional local .mkv copy recorded while streaming
   mutable std::mutex muxMu_;
   EncoderParams streamParams_;  // the same settings for every reconnect attempt
   std::unique_ptr<IVideoSource> video_;
   Track sys_, mic_;
+  std::atomic<float> sysGain_{1.0f}, micGain_{1.0f};
+  std::atomic<bool> sysMuted_{false}, micMuted_{false};
   std::thread vth_, ath_, closer_, rth_;
   std::atomic<bool> run_{false};
   std::mutex runMu_;

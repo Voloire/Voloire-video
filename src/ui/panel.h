@@ -4,11 +4,13 @@
 #include "app_controller.h"
 #include "devices.h"
 
+class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
 class QRadioButton;
+class QSlider;
 class QSpinBox;
 class QTabWidget;
 class QTimer;
@@ -51,6 +53,21 @@ class MainPanel : public QWidget {
   void clearStreamKey();
   void promptStreamKey();                     // masked dialog, from the YouTube menu
   vv::json streamStatus() const;
+
+  // Multi-channel YouTube destinations
+  std::vector<vv::StreamChannel> channels() const;
+  QString activeChannelId() const;
+  QString activeChannelLabel() const;
+  void selectChannel(const QString& id);
+  void promptAddChannel();
+  void deleteActiveChannel();
+  void openYouTubeStudio();
+
+  // Audio mix & mute
+  bool sysMuted() const;
+  bool micMuted() const;
+  void setSysMuted(bool on);
+  void setMicMuted(bool on);
 
   // Share copy of the last recording: the target size and the clipboard live in ui.json.
   void setShareTarget(int mb);   // 0 = off
@@ -97,6 +114,10 @@ class MainPanel : public QWidget {
   void showError(const QString& m);
   void startShare(const QString& path, int mb);
   void syncKeyUi();
+  void refreshChannelCombos();
+  void applyAudioMix();
+  void stopIdleAudio();
+  void pollIdleAudio();
   vv::WindowInfo findWindow(qint64 hwnd) const;
 
   vv::AppController& app_;
@@ -112,18 +133,28 @@ class MainPanel : public QWidget {
   bool loading_ = false;
   std::thread startTh_;
 
+  std::unique_ptr<vv::IAudioSource> idleSys_, idleMic_;
+  QString idleSysKey_, idleMicKey_;
+
   QTabWidget* tabs_ = nullptr;
   QPushButton* themeBtn_ = nullptr;
   QRadioButton *rbWindow_, *rbMonitor_, *rbDxgi_;
   QComboBox *winCombo_, *monCombo_, *sysCombo_, *micCombo_, *containerCombo_, *codecCombo_, *encoderCombo_, *resCombo_,
       *fpsCombo_, *qualityCombo_, *shareCombo_, *outputCombo_;
+  QComboBox *channelCombo_ = nullptr, *ytChannelCombo_ = nullptr;
   QComboBox *ytOutputCombo_ = nullptr, *streamServerCombo_ = nullptr, *streamPresetCombo_ = nullptr,
             *streamResCombo_ = nullptr, *ytFpsCombo_ = nullptr, *ytEncoderCombo_ = nullptr,
             *ytSysCombo_ = nullptr, *ytMicCombo_ = nullptr;
   QSpinBox *bitrate_, *streamKbps_, *ytKbps_ = nullptr;
   QLineEdit *dirEdit_, *urlEdit_, *keyEdit_, *ytUrlEdit_ = nullptr, *ytKeyEdit_ = nullptr;
+  QLineEdit *ytChannelLabelEdit_ = nullptr, *ytStudioUrlEdit_ = nullptr;
   QPushButton *keySave_, *keyClear_ = nullptr, *studioBtn_ = nullptr,
-              *ytKeySave_ = nullptr, *ytKeyClear_ = nullptr, *ytStudioBtn_ = nullptr;
+              *ytKeySave_ = nullptr, *ytKeyClear_ = nullptr, *ytStudioBtn_ = nullptr,
+              *addChBtn_ = nullptr, *ytAddChBtn_ = nullptr, *ytDelChBtn_ = nullptr;
+  QCheckBox *localCopyCheck_ = nullptr, *ytLocalCopyCheck_ = nullptr;
+  QPushButton *sysMuteBtn_ = nullptr, *micMuteBtn_ = nullptr, *ytSysMuteBtn_ = nullptr, *ytMicMuteBtn_ = nullptr;
+  QSlider *sysVolSlider_ = nullptr, *micVolSlider_ = nullptr, *ytSysVolSlider_ = nullptr, *ytMicVolSlider_ = nullptr;
+  QLabel *sysVolLabel_ = nullptr, *micVolLabel_ = nullptr, *ytSysVolLabel_ = nullptr, *ytMicVolLabel_ = nullptr;
   QLabel *keyStateLabel_ = nullptr, *ytKeyStateLabel_ = nullptr;
   QWidget* streamCard_;  // the Stream group in the Recording tab (always visible)
   LevelMeter *sysMeter_, *micMeter_, *ytSysMeter_ = nullptr, *ytMicMeter_ = nullptr;

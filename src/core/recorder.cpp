@@ -86,7 +86,11 @@ bool Recorder::start(const RecordConfig& cfg, std::string& err) {
   const bool streaming = cfg.output == "stream";
   if (streaming) {
     std::string key = streamKeyOverride_;
-    if (key.empty()) key = loadSecret("stream_key");
+    std::string secName = (cfg.streamChannel.empty() || cfg.streamChannel == "default")
+                              ? "stream_key"
+                              : ("stream_key_" + cfg.streamChannel);
+    if (key.empty()) key = loadSecret(secName);
+    if (key.empty() && secName != "stream_key") key = loadSecret("stream_key");
     if (key.empty()) {
       err = "no stream key: set it in YouTube > Set stream key, or pass --stream-key";
       return false;  // still before any source starts and before anything touches the network
@@ -98,6 +102,7 @@ bool Recorder::start(const RecordConfig& cfg, std::string& err) {
 
   state_ = RecState::Starting;
   cfg_ = cfg;
+  setAudioMix(cfg.sysVolumePct, cfg.micVolumePct, cfg.sysMuted, cfg.micMuted);
   { std::lock_guard e(errMu_); error_.clear(); }
   repeated_ = 0; droppedTicks_ = 0; sourceFrames_ = 0; latestSeq_ = 0; latest_.reset();
   sys_ = Track{}; mic_ = Track{};
@@ -116,8 +121,14 @@ bool Recorder::start(const RecordConfig& cfg, std::string& err) {
   std::string base = cfg.name + "_" + timestamp();
   std::string outDir = cfg.outDir.empty() ? defaultOutDir() : cfg.outDir;
   try { fs::create_directories(pathOf(outDir)); } catch (...) {}
-  if (streaming) path_.clear();  // a stream writes no file
-  else path_ = strOf(pathOf(outDir) / pathOf(base + "." + cfg.container));
+  localMux_.reset();
+  localPath_.clear();
+  if (streaming) {
+    path_.clear();  // a stream writes no file unless recordWhileStreaming is on
+    if (cfg.recordWhileStreaming) localPath_ = strOf(pathOf(outDir) / pathOf(base + ".mkv"));
+  } else {
+    path_ = strOf(pathOf(outDir) / pathOf(base + "." + cfg.container));
+  }
   telemetryDir_ = cfg.telemetryDir.empty() ? strOf(pathOf(outDir) / "telemetry" / pathOf(base))
                                            : cfg.telemetryDir;
   auto& tel = Telemetry::get();
@@ -229,6 +240,17 @@ bool Recorder::start(const RecordConfig& cfg, std::string& err) {
   streamParams_ = ep;  // every reconnect attempt opens a fresh muxer with these settings
   mux_ = std::make_shared<Muxer>();
   if (!mux_->open(ep, e)) { mux_.reset(); return fail(streaming ? "stream: " + e : "encoder: " + e); }
+  if (streaming && !localPath_.empty()) {
+    EncoderParams lp = ep;
+    lp.path = localPath_;
+    lp.format.clear();
+    lp.container = "mkv";
+    lp.asyncWrite = false;
+    lp.maxQueueMs = 0;
+    auto lm = std::make_shared<Muxer>();
+    std::string le;
+    if (lm->open(lp, le)) localMux_ = lm;
+  }
   VV_LOG(Info, "recorder", "muxer open",
          {{"path", streaming ? redactUrl(streamTarget_) : path_}, {"encoder", mux_->videoEncoderName()},
           {"w", ep.width}, {"h", ep.height}, {"fps", ep.fps}, {"bitrateKbps", ep.bitrateKbps}});
@@ -247,6 +269,13 @@ bool Recorder::start(const RecordConfig& cfg, std::string& err) {
   ath_ = std::thread([this] { audioLoop(); });
   setState(RecState::Recording);
   return true;
+}
+
+void Recorder::setAudioMix(int sysPct, int micPct, bool sysMute, bool micMute) {
+  sysGain_.store(std::clamp(sysPct, 0, 200) / 100.0f);
+  micGain_.store(std::clamp(micPct, 0, 200) / 100.0f);
+  sysMuted_.store(sysMute);
+  micMuted_.store(micMute);
 }
 
 bool Recorder::pause() {
@@ -335,6 +364,7 @@ void Recorder::videoLoop() {
     } else if (!m->writeVideo(*f, pts)) {
       tel.inc("video.encode_errors");
     }
+    if (localMux_) localMux_->writeVideo(*f, pts);
     double ms = (nowUs() - a) / 1000.0;
     encEma = encEma == 0 ? ms : encEma * 0.9 + ms * 0.1;
     ++frames; ++winFrames;
@@ -388,9 +418,13 @@ void Recorder::feedTrack(Track& t, bool paused) {
       t.trimmed += (int64_t)skip;
     }
     if (n > skip) {
-      const float* p = buf.data() + skip * kChannels;
+      float* p = buf.data() + skip * kChannels;
       size_t m2 = n - skip;
+      const bool isSys = (&t == &sys_);
+      const float gain = (isSys ? (sysMuted_.load() ? 0.0f : sysGain_.load())
+                                : (micMuted_.load() ? 0.0f : micGain_.load()));
       for (size_t i = 0; i < m2 * kChannels; ++i) {
+        p[i] = std::clamp(p[i] * gain, -1.0f, 1.0f);
         double v = std::fabs(p[i]);
         t.peak = std::max(t.peak, v);
         t.sumSq += v * v;
@@ -452,6 +486,7 @@ void Recorder::mixTick() {
       size_t pad = (size_t)(expected - mixWritten_ - kSampleRate * 10 / 1000);
       std::vector<float> zeros(pad * kChannels, 0.f);
       m->writeAudio(mixIndex_, zeros.data(), pad);
+      if (localMux_) localMux_->writeAudio(mixIndex_, zeros.data(), pad);
       mixWritten_ += (int64_t)pad;
     }
     return;
@@ -463,6 +498,7 @@ void Recorder::mixTick() {
     mix[i] = std::clamp(a + b, -1.0f, 1.0f);
   }
   m->writeAudio(mixIndex_, mix.data(), n);
+  if (localMux_) localMux_->writeAudio(mixIndex_, mix.data(), n);
   mixWritten_ += (int64_t)n;
   sys_.outq.erase(sys_.outq.begin(), sys_.outq.begin() + (ptrdiff_t)std::min(nsys, n * kChannels));
   mic_.outq.erase(mic_.outq.begin(), mic_.outq.begin() + (ptrdiff_t)std::min(nmic, n * kChannels));
@@ -513,6 +549,12 @@ RecResult Recorder::stop() {
     if (!mux_->close(e)) { if (err.empty()) err = e; }
     VV_LOG(Debug, "recorder", "muxer closed");
     mux_.reset();
+  }
+  if (localMux_) {
+    std::string le;
+    localMux_->close(le);
+    localMux_.reset();
+    if (path_.empty()) path_ = localPath_;
   }
   for (Track* t : {&sys_, &mic_}) t->src.reset();
   r.path = path_;

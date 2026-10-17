@@ -55,8 +55,12 @@ QPushButton#rec { font-size: 13px; padding: 6px 18px; background: #2F5D3F; borde
 QPushButton#rec:hover { background: #386E4B; border: 1px solid #4F8A5F; }
 QPushButton#rec[active="true"] { background: #C0392B; border: 1px solid #C0392B; }
 QPushButton#rec[active="true"]:hover { background: #A93226; border: 1px solid #A93226; }
+QPushButton#mute[muted="true"] { background: #C0392B; border: 1px solid #C0392B; color: #FFFFFF; }
 QPushButton#flat { border: none; background: transparent; padding: 1px 6px; font-size: 14px; color: #8A9590; }
 QPushButton#flat:hover { color: #D6E4D6; }
+QSlider::groove:horizontal { height: 4px; background: #14201E; border: 1px solid #2F3633; border-radius: 2px; }
+QSlider::sub-page:horizontal { background: #4F8A5F; border-radius: 2px; }
+QSlider::handle:horizontal { background: #D6E4D6; border: 1px solid #4F8A5F; width: 10px; margin: -4px 0; border-radius: 5px; }
 QRadioButton, QCheckBox { spacing: 6px; }
 QRadioButton::indicator, QCheckBox::indicator { width: 11px; height: 11px; border: 1px solid #45544E; background: #14201E; border-radius: 5px; }
 QCheckBox::indicator { border-radius: 3px; }
@@ -106,8 +110,12 @@ QPushButton#rec { font-size: 13px; padding: 6px 18px; background: #2F5D3F; borde
 QPushButton#rec:hover { background: #28503A; border: 1px solid #28503A; }
 QPushButton#rec[active="true"] { background: #C0392B; border: 1px solid #C0392B; }
 QPushButton#rec[active="true"]:hover { background: #A93226; border: 1px solid #A93226; }
+QPushButton#mute[muted="true"] { background: #C0392B; border: 1px solid #C0392B; color: #FFFFFF; }
 QPushButton#flat { border: none; background: transparent; padding: 1px 6px; font-size: 14px; color: #7C8A7C; }
 QPushButton#flat:hover { color: #2F5D3F; }
+QSlider::groove:horizontal { height: 4px; background: #E6EBE1; border: 1px solid #DCE3D4; border-radius: 2px; }
+QSlider::sub-page:horizontal { background: #2F5D3F; border-radius: 2px; }
+QSlider::handle:horizontal { background: #2F5D3F; border: 1px solid #28503A; width: 10px; margin: -4px 0; border-radius: 5px; }
 QRadioButton, QCheckBox { spacing: 6px; }
 QRadioButton::indicator, QCheckBox::indicator { width: 11px; height: 11px; border: 1px solid #C9D4C2; background: #FFFFFF; border-radius: 5px; }
 QCheckBox::indicator { border-radius: 3px; }
@@ -213,15 +221,16 @@ void LevelMeter::paintEvent(QPaintEvent*) {
   p.drawRoundedRect(r, 2, 2);
   auto pos = [&](double db) { return std::clamp((db + 60.0) / 60.0, 0.0, 1.0) * (r.width() - 4); };
   QRectF bar(r.left() + 2, r.top() + 2, pos(rms_), r.height() - 4);
-  QLinearGradient g(bar.topLeft(), QPointF(r.right(), r.top()));
-  g.setColorAt(0, col::accent);
-  g.setColorAt(0.8, col::accent2);
-  g.setColorAt(1, QColor(0x8F, 0xC0, 0x9A));
+  QLinearGradient g(r.left() + 2, r.top(), r.right() - 2, r.top());
+  g.setColorAt(0.0, col::accent);
+  g.setColorAt(0.78, col::accent2);
+  g.setColorAt(0.92, hud::paused);
+  g.setColorAt(1.0, hud::rec);
   p.setPen(Qt::NoPen);
   p.setBrush(g);
   p.drawRect(bar);
   double hx = r.left() + 2 + pos(hold_);
-  p.setPen(QPen(col::accent, 2));
+  p.setPen(QPen(hold_ > -3.0 ? hud::rec : (hold_ > -12.0 ? hud::paused : col::accent), 2));
   p.drawLine(QPointF(hx, r.top() + 2), QPointF(hx, r.bottom() - 2));
 }
 

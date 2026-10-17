@@ -51,6 +51,11 @@ std::string HudBar::dotName() const {
 QString HudBar::displayText() const {
   QString t = label_ + "  " + panel_->timerText();
   if (!kbps_.isEmpty()) t += "  " + kbps_;
+  if (panel_->outputKind() == "stream") {
+    QString ch = panel_->activeChannelLabel();
+    if (!ch.isEmpty()) t += "  [" + ch + "]";
+  }
+  if (panel_->micMuted()) t += "  [MIC OFF]";
   return t;
 }
 
@@ -174,6 +179,9 @@ void HudBar::mousePressEvent(QMouseEvent* e) {
     dragging_ = true;
     moved_ = false;
     dragFrom_ = e->globalPosition().toPoint() - frameGeometry().topLeft();
+    e->accept();
+  } else if (e->button() == Qt::MiddleButton) {
+    panel_->setMicMuted(!panel_->micMuted());
     e->accept();
   } else if (e->button() == Qt::RightButton) {
     if (menu_.isVisible()) {

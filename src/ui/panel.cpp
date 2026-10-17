@@ -1,5 +1,6 @@
 #include "panel.h"
 #include <QApplication>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QFileDialog>
@@ -17,6 +18,7 @@
 #include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSizeGrip>
+#include <QSlider>
 #include <QSpinBox>
 #include <QStyle>
 #include <QTabWidget>
@@ -24,7 +26,9 @@
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWindow>
+#include <cmath>
 #include <windows.h>
+#include "secrets.h"
 #include "telemetry.h"
 #include "theme.h"
 
@@ -81,8 +85,8 @@ MainPanel::MainPanel(vv::AppController& app, QWidget* parent) : QWidget(parent),
   build();
   refreshSources();
   QRect avail = QGuiApplication::primaryScreen() ? QGuiApplication::primaryScreen()->availableGeometry() : QRect(0, 0, 1280, 720);
-  int w = std::min(560, avail.width() - 40);
-  int h = std::min(710, avail.height() - 32);
+  int w = std::min(620, avail.width() - 40);
+  int h = std::min(715, avail.height() - 32);
   resize(w, h);
   move(avail.x() + (avail.width() - w) / 2, avail.y() + (avail.height() - h) / 2);
 
@@ -95,6 +99,7 @@ MainPanel::MainPanel(vv::AppController& app, QWidget* parent) : QWidget(parent),
 }
 
 MainPanel::~MainPanel() {
+  stopIdleAudio();
   if (startTh_.joinable()) startTh_.join();
 }
 
@@ -229,6 +234,26 @@ void MainPanel::build() {
     g->setVerticalSpacing(3);
     sysCombo_ = new QComboBox(this);
     micCombo_ = new QComboBox(this);
+    sysMuteBtn_ = new QPushButton("MUTE", this);
+    sysMuteBtn_->setObjectName("mute");
+    sysMuteBtn_->setCheckable(true);
+    micMuteBtn_ = new QPushButton("MUTE", this);
+    micMuteBtn_->setObjectName("mute");
+    micMuteBtn_->setCheckable(true);
+    sysVolSlider_ = new QSlider(Qt::Horizontal, this);
+    sysVolSlider_->setRange(0, 200);
+    sysVolSlider_->setValue(100);
+    sysVolSlider_->setFixedWidth(90);
+    micVolSlider_ = new QSlider(Qt::Horizontal, this);
+    micVolSlider_->setRange(0, 200);
+    micVolSlider_->setValue(100);
+    micVolSlider_->setFixedWidth(90);
+    sysVolLabel_ = new QLabel("100%", this);
+    sysVolLabel_->setObjectName("sub");
+    sysVolLabel_->setFixedWidth(34);
+    micVolLabel_ = new QLabel("100%", this);
+    micVolLabel_->setObjectName("sub");
+    micVolLabel_->setFixedWidth(34);
     sysMeter_ = new LevelMeter(this);
     micMeter_ = new LevelMeter(this);
     auto* l1 = new QLabel("SYS", this);
@@ -237,14 +262,42 @@ void MainPanel::build() {
     l2->setObjectName("status");
     g->addWidget(l1, 0, 0);
     g->addWidget(sysCombo_, 0, 1);
-    g->addWidget(sysMeter_, 1, 1);
+    g->addWidget(sysVolSlider_, 0, 2);
+    g->addWidget(sysVolLabel_, 0, 3);
+    g->addWidget(sysMuteBtn_, 0, 4);
+    g->addWidget(sysMeter_, 1, 1, 1, 4);
     g->addWidget(l2, 2, 0);
     g->addWidget(micCombo_, 2, 1);
-    g->addWidget(micMeter_, 3, 1);
+    g->addWidget(micVolSlider_, 2, 2);
+    g->addWidget(micVolLabel_, 2, 3);
+    g->addWidget(micMuteBtn_, 2, 4);
+    g->addWidget(micMeter_, 3, 1, 1, 4);
     g->setColumnStretch(1, 1);
-    body->addWidget(makeCard("AUDIO CHANNELS", g, this));
+    body->addWidget(makeCard("AUDIO CHANNELS & BALANCE", g, this));
     connect(sysCombo_, &QComboBox::currentIndexChanged, this, [this] { persist(); });
     connect(micCombo_, &QComboBox::currentIndexChanged, this, [this] { persist(); });
+    connect(sysVolSlider_, &QSlider::valueChanged, this, [this](int v) {
+      sysVolLabel_->setText(QString("%1%").arg(v));
+      if (ytSysVolSlider_ && ytSysVolSlider_->value() != v) {
+        QSignalBlocker b(ytSysVolSlider_);
+        ytSysVolSlider_->setValue(v);
+        if (ytSysVolLabel_) ytSysVolLabel_->setText(QString("%1%").arg(v));
+      }
+      applyAudioMix();
+      persist();
+    });
+    connect(micVolSlider_, &QSlider::valueChanged, this, [this](int v) {
+      micVolLabel_->setText(QString("%1%").arg(v));
+      if (ytMicVolSlider_ && ytMicVolSlider_->value() != v) {
+        QSignalBlocker b(ytMicVolSlider_);
+        ytMicVolSlider_->setValue(v);
+        if (ytMicVolLabel_) ytMicVolLabel_->setText(QString("%1%").arg(v));
+      }
+      applyAudioMix();
+      persist();
+    });
+    connect(sysMuteBtn_, &QPushButton::toggled, this, [this](bool on) { setSysMuted(on); });
+    connect(micMuteBtn_, &QPushButton::toggled, this, [this](bool on) { setMicMuted(on); });
   }
 
   // Output
@@ -349,13 +402,16 @@ void MainPanel::build() {
     auto* g = new QGridLayout();
     g->setHorizontalSpacing(8);
     g->setVerticalSpacing(3);
+    channelCombo_ = new QComboBox(this);
+    addChBtn_ = new QPushButton("+ CHANNEL", this);
+    addChBtn_->setToolTip("Add a new YouTube channel destination");
     keyEdit_ = new QLineEdit(this);
     keyEdit_->setEchoMode(QLineEdit::Password);
     keyEdit_->setPlaceholderText("stream key (stored encrypted)");
     keySave_ = new QPushButton("SAVE", this);
     keyClear_ = new QPushButton("CLEAR", this);
     studioBtn_ = new QPushButton("STUDIO", this);
-    studioBtn_->setToolTip("Open YouTube Studio > Go live");
+    studioBtn_->setToolTip("Open YouTube Studio for the selected channel");
     keyStateLabel_ = new QLabel("KEY: NOT SET", this);
     keyStateLabel_->setObjectName("status");
     urlEdit_ = new QLineEdit(this);
@@ -364,23 +420,25 @@ void MainPanel::build() {
     streamKbps_->setRange(1000, 51000);
     streamKbps_->setSingleStep(1000);
     streamKbps_->setSuffix(" kbps");
-    auto* openStreamTab = new QPushButton("STREAM OPTIONS", this);
+    localCopyCheck_ = new QCheckBox("Save local .mkv copy while live", this);
+    auto* openStreamTab = new QPushButton("STREAM TAB", this);
     openStreamTab->setToolTip("Open the dedicated YouTube Stream tab");
     auto lab = [&](const char* t) { auto* l = new QLabel(t, this); l->setObjectName("sub"); return l; };
-    auto* keyHdr = new QHBoxLayout();
-    keyHdr->addWidget(lab("STREAM KEY"));
-    keyHdr->addStretch(1);
-    keyHdr->addWidget(keyStateLabel_);
+    auto* chRow = new QHBoxLayout();
+    chRow->addWidget(lab("CHANNEL"));
+    chRow->addWidget(channelCombo_, 1);
+    chRow->addWidget(addChBtn_);
+    chRow->addWidget(keyStateLabel_);
     auto* keyRow = new QHBoxLayout();
     keyRow->addWidget(keyEdit_, 1);
     keyRow->addWidget(keySave_);
     keyRow->addWidget(keyClear_);
     keyRow->addWidget(studioBtn_);
-    g->addLayout(keyHdr, 0, 0, 1, 3);
+    g->addLayout(chRow, 0, 0, 1, 3);
     g->addLayout(keyRow, 1, 0, 1, 3);
     g->addWidget(lab("INGEST URL"), 2, 0);
     g->addWidget(lab("STREAM BITRATE"), 2, 1);
-    g->addWidget(lab("PRE-STUDIO SETTINGS"), 2, 2);
+    g->addWidget(localCopyCheck_, 2, 2);
     g->addWidget(urlEdit_, 3, 0);
     g->addWidget(streamKbps_, 3, 1);
     g->addWidget(openStreamTab, 3, 2);
@@ -388,9 +446,21 @@ void MainPanel::build() {
     g->setColumnStretch(1, 1);
     streamCard_ = makeCard("STREAM (YOUTUBE)", g, this);
     body->addWidget(streamCard_);
+    connect(channelCombo_, &QComboBox::currentIndexChanged, this, [this] {
+      if (!loading_ && channelCombo_->currentIndex() >= 0)
+        selectChannel(channelCombo_->currentData().toString());
+    });
+    connect(addChBtn_, &QPushButton::clicked, this, &MainPanel::promptAddChannel);
     connect(openStreamTab, &QPushButton::clicked, this, [this] { if (tabs_) tabs_->setCurrentIndex(1); });
-    connect(studioBtn_, &QPushButton::clicked, this, [] { QDesktopServices::openUrl(QUrl("https://studio.youtube.com/")); });
+    connect(studioBtn_, &QPushButton::clicked, this, &MainPanel::openYouTubeStudio);
     connect(keyClear_, &QPushButton::clicked, this, [this] { clearStreamKey(); });
+    connect(localCopyCheck_, &QCheckBox::toggled, this, [this](bool on) {
+      if (ytLocalCopyCheck_ && ytLocalCopyCheck_->isChecked() != on) {
+        QSignalBlocker b(ytLocalCopyCheck_);
+        ytLocalCopyCheck_->setChecked(on);
+      }
+      persist();
+    });
     connect(urlEdit_, &QLineEdit::editingFinished, this, [this] {
       if (ytUrlEdit_ && ytUrlEdit_->text() != urlEdit_->text()) ytUrlEdit_->setText(urlEdit_->text());
       persist();
@@ -410,7 +480,7 @@ void MainPanel::build() {
   }
   body->addStretch(1);
 
-  // Tab 2: YOUTUBE STREAM — groups all options that apply to YouTube streaming & pre-Studio setup.
+  // Tab 2: YOUTUBE STREAM — groups all options that apply to YouTube streaming & multi-channel setup.
   {
     auto* ytScroll = new QScrollArea(tabs_);
     ytScroll->setWidgetResizable(true);
@@ -426,22 +496,31 @@ void MainPanel::build() {
 
     auto lab = [&](const char* t) { auto* l = new QLabel(t, this); l->setObjectName("sub"); return l; };
 
-    // Card 1: YouTube Destination, Mode & Stream Key
+    // Card 1: Multi-Channel YouTube Destination, Studio URL & Stream Key
     {
       auto* g = new QGridLayout();
       g->setHorizontalSpacing(8);
       g->setVerticalSpacing(4);
+      ytChannelCombo_ = new QComboBox(this);
+      ytAddChBtn_ = new QPushButton("+ NEW", this);
+      ytDelChBtn_ = new QPushButton("DEL", this);
+      ytChannelLabelEdit_ = new QLineEdit(this);
+      ytChannelLabelEdit_->setPlaceholderText("e.g. Main Channel, Gaming, Clips");
+      ytStudioUrlEdit_ = new QLineEdit(this);
+      ytStudioUrlEdit_->setPlaceholderText("UC... or https://studio.youtube.com/channel/...");
+
       ytOutputCombo_ = new QComboBox(this);
       ytOutputCombo_->addItem("Record to file", "file");
       ytOutputCombo_->addItem("Stream to YouTube (LIVE)", "stream");
+      ytLocalCopyCheck_ = new QCheckBox("Save local .mkv copy while live", this);
       ytKeyStateLabel_ = new QLabel("Stream key: NOT SET", this);
       ytKeyStateLabel_->setObjectName("status");
       ytKeyEdit_ = new QLineEdit(this);
       ytKeyEdit_->setEchoMode(QLineEdit::Password);
-      ytKeyEdit_->setPlaceholderText("Paste stream key from YouTube Studio > Go live");
+      ytKeyEdit_->setPlaceholderText("Paste stream key for this channel");
       ytKeySave_ = new QPushButton("SAVE KEY", this);
       ytKeyClear_ = new QPushButton("CLEAR", this);
-      ytStudioBtn_ = new QPushButton("OPEN YOUTUBE STUDIO", this);
+      ytStudioBtn_ = new QPushButton("STUDIO", this);
       streamServerCombo_ = new QComboBox(this);
       streamServerCombo_->addItem("YouTube Primary (rtmp://a.rtmp.youtube.com/live2)", "rtmp://a.rtmp.youtube.com/live2");
       streamServerCombo_->addItem("YouTube RTMPS TLS 443 (rtmps://a.rtmp.youtube.com/live2)", "rtmps://a.rtmp.youtube.com/live2");
@@ -450,43 +529,97 @@ void MainPanel::build() {
       ytUrlEdit_ = new QLineEdit(this);
       ytUrlEdit_->setPlaceholderText("rtmp://a.rtmp.youtube.com/live2");
 
-      g->addWidget(lab("ACTIVE OUTPUT MODE"), 0, 0);
-      g->addWidget(lab("KEY STATUS (DPAPI ENCRYPTED)"), 0, 1);
-      g->addWidget(ytOutputCombo_, 1, 0);
+      auto* chPickRow = new QHBoxLayout();
+      chPickRow->addWidget(ytChannelCombo_, 1);
+      chPickRow->addWidget(ytAddChBtn_);
+      chPickRow->addWidget(ytDelChBtn_);
+      g->addWidget(lab("DESTINATION CHANNEL (SWITCH BY LABEL)"), 0, 0);
+      g->addWidget(lab("KEY STATUS (PER-CHANNEL DPAPI)"), 0, 1);
+      g->addLayout(chPickRow, 1, 0);
       g->addWidget(ytKeyStateLabel_, 1, 1);
+
+      g->addWidget(lab("CHANNEL LABEL"), 2, 0);
+      g->addWidget(lab("CHANNEL ID (UC...) OR STUDIO URL"), 2, 1);
+      g->addWidget(ytChannelLabelEdit_, 3, 0);
+      g->addWidget(ytStudioUrlEdit_, 3, 1);
 
       auto* kRow = new QHBoxLayout();
       kRow->addWidget(ytKeyEdit_, 1);
       kRow->addWidget(ytKeySave_);
       kRow->addWidget(ytKeyClear_);
       kRow->addWidget(ytStudioBtn_);
-      g->addWidget(lab("YOUTUBE STREAM KEY"), 2, 0, 1, 2);
-      g->addLayout(kRow, 3, 0, 1, 2);
+      g->addWidget(lab("CHANNEL STREAM KEY"), 4, 0, 1, 2);
+      g->addLayout(kRow, 5, 0, 1, 2);
 
-      g->addWidget(lab("INGEST SERVER PRESET"), 4, 0);
-      g->addWidget(lab("INGEST URL"), 4, 1);
-      g->addWidget(streamServerCombo_, 5, 0);
-      g->addWidget(ytUrlEdit_, 5, 1);
+      g->addWidget(lab("ACTIVE OUTPUT MODE"), 6, 0);
+      g->addWidget(lab("SIMULTANEOUS LOCAL ARCHIVE"), 6, 1);
+      g->addWidget(ytOutputCombo_, 7, 0);
+      g->addWidget(ytLocalCopyCheck_, 7, 1);
+
+      g->addWidget(lab("INGEST SERVER PRESET"), 8, 0);
+      g->addWidget(lab("INGEST URL"), 8, 1);
+      g->addWidget(streamServerCombo_, 9, 0);
+      g->addWidget(ytUrlEdit_, 9, 1);
       g->setColumnStretch(0, 1);
       g->setColumnStretch(1, 1);
-      ytBody->addWidget(makeCard("YOUTUBE DESTINATION & STREAM KEY", g, this));
+      ytBody->addWidget(makeCard("YOUTUBE CHANNELS & DESTINATION", g, this));
 
+      connect(ytChannelCombo_, &QComboBox::currentIndexChanged, this, [this] {
+        if (!loading_ && ytChannelCombo_->currentIndex() >= 0)
+          selectChannel(ytChannelCombo_->currentData().toString());
+      });
+      connect(ytAddChBtn_, &QPushButton::clicked, this, &MainPanel::promptAddChannel);
+      connect(ytDelChBtn_, &QPushButton::clicked, this, &MainPanel::deleteActiveChannel);
+      connect(ytChannelLabelEdit_, &QLineEdit::editingFinished, this, [this] {
+        if (loading_ || !prefs_) return;
+        QString v = ytChannelLabelEdit_->text().trimmed();
+        if (v.isEmpty()) return;
+        std::string cid = activeChannelId().toStdString();
+        for (auto& ch : prefs_->channels) {
+          if (ch.id == cid) { ch.label = v.toStdString(); break; }
+        }
+        vv::saveUiPrefs(*prefs_);
+        refreshChannelCombos();
+        syncKeyUi();
+        emit changed();
+      });
+      connect(ytStudioUrlEdit_, &QLineEdit::editingFinished, this, [this] {
+        if (loading_ || !prefs_) return;
+        std::string cid = activeChannelId().toStdString();
+        for (auto& ch : prefs_->channels) {
+          if (ch.id == cid) { ch.studioUrl = ytStudioUrlEdit_->text().trimmed().toStdString(); break; }
+        }
+        vv::saveUiPrefs(*prefs_);
+        syncKeyUi();
+      });
       connect(ytOutputCombo_, &QComboBox::currentIndexChanged, this, [this] {
         if (loading_) return;
         setOutput(ytOutputCombo_->currentData().toString());
+      });
+      connect(ytLocalCopyCheck_, &QCheckBox::toggled, this, [this](bool on) {
+        if (localCopyCheck_ && localCopyCheck_->isChecked() != on) {
+          QSignalBlocker b(localCopyCheck_);
+          localCopyCheck_->setChecked(on);
+        }
+        persist();
       });
       connect(ytKeySave_, &QPushButton::clicked, this, [this] {
         if (ytKeyEdit_->text().isEmpty()) return;
         if (setStreamKey(ytKeyEdit_->text().trimmed().toStdString())) ytKeyEdit_->clear();
       });
       connect(ytKeyClear_, &QPushButton::clicked, this, [this] { clearStreamKey(); });
-      connect(ytStudioBtn_, &QPushButton::clicked, this, [] { QDesktopServices::openUrl(QUrl("https://studio.youtube.com/")); });
+      connect(ytStudioBtn_, &QPushButton::clicked, this, &MainPanel::openYouTubeStudio);
       connect(streamServerCombo_, &QComboBox::currentIndexChanged, this, [this] {
         if (loading_) return;
         QString u = streamServerCombo_->currentData().toString();
         if (u != "custom") {
           urlEdit_->setText(u);
           ytUrlEdit_->setText(u);
+          if (prefs_) {
+            std::string cid = activeChannelId().toStdString();
+            for (auto& ch : prefs_->channels) if (ch.id == cid) ch.streamUrl = u.toStdString();
+            vv::saveUiPrefs(*prefs_);
+          }
           persist();
         }
       });
@@ -495,6 +628,11 @@ void MainPanel::build() {
         int idx = streamServerCombo_->findData(ytUrlEdit_->text());
         QSignalBlocker b(streamServerCombo_);
         streamServerCombo_->setCurrentIndex(idx >= 0 ? idx : streamServerCombo_->findData("custom"));
+        if (prefs_) {
+          std::string cid = activeChannelId().toStdString();
+          for (auto& ch : prefs_->channels) if (ch.id == cid) ch.streamUrl = ytUrlEdit_->text().trimmed().toStdString();
+          vv::saveUiPrefs(*prefs_);
+        }
         persist();
       });
     }
@@ -539,7 +677,7 @@ void MainPanel::build() {
       g->addWidget(streamResCombo_, 1, 2);
       g->addWidget(lab("FRAME RATE"), 2, 0);
       g->addWidget(lab("HARDWARE ENCODER"), 2, 1);
-      g->addWidget(lab("STREAM BITRATE (CBR, 2s KEYFRAME)"), 2, 2);
+      g->addWidget(lab("STREAM BITRATE (CBR)"), 2, 2);
       g->addWidget(ytFpsCombo_, 3, 0);
       g->addWidget(ytEncoderCombo_, 3, 1);
       g->addWidget(ytKbps_, 3, 2);
@@ -592,6 +730,26 @@ void MainPanel::build() {
       g->setVerticalSpacing(3);
       ytSysCombo_ = new QComboBox(this);
       ytMicCombo_ = new QComboBox(this);
+      ytSysMuteBtn_ = new QPushButton("MUTE", this);
+      ytSysMuteBtn_->setObjectName("mute");
+      ytSysMuteBtn_->setCheckable(true);
+      ytMicMuteBtn_ = new QPushButton("MUTE", this);
+      ytMicMuteBtn_->setObjectName("mute");
+      ytMicMuteBtn_->setCheckable(true);
+      ytSysVolSlider_ = new QSlider(Qt::Horizontal, this);
+      ytSysVolSlider_->setRange(0, 200);
+      ytSysVolSlider_->setValue(100);
+      ytSysVolSlider_->setFixedWidth(90);
+      ytMicVolSlider_ = new QSlider(Qt::Horizontal, this);
+      ytMicVolSlider_->setRange(0, 200);
+      ytMicVolSlider_->setValue(100);
+      ytMicVolSlider_->setFixedWidth(90);
+      ytSysVolLabel_ = new QLabel("100%", this);
+      ytSysVolLabel_->setObjectName("sub");
+      ytSysVolLabel_->setFixedWidth(34);
+      ytMicVolLabel_ = new QLabel("100%", this);
+      ytMicVolLabel_->setObjectName("sub");
+      ytMicVolLabel_->setFixedWidth(34);
       ytSysMeter_ = new LevelMeter(this);
       ytMicMeter_ = new LevelMeter(this);
       auto* l1 = new QLabel("SYS", this);
@@ -600,12 +758,18 @@ void MainPanel::build() {
       l2->setObjectName("status");
       g->addWidget(l1, 0, 0);
       g->addWidget(ytSysCombo_, 0, 1);
-      g->addWidget(ytSysMeter_, 1, 1);
+      g->addWidget(ytSysVolSlider_, 0, 2);
+      g->addWidget(ytSysVolLabel_, 0, 3);
+      g->addWidget(ytSysMuteBtn_, 0, 4);
+      g->addWidget(ytSysMeter_, 1, 1, 1, 4);
       g->addWidget(l2, 2, 0);
       g->addWidget(ytMicCombo_, 2, 1);
-      g->addWidget(ytMicMeter_, 3, 1);
+      g->addWidget(ytMicVolSlider_, 2, 2);
+      g->addWidget(ytMicVolLabel_, 2, 3);
+      g->addWidget(ytMicMuteBtn_, 2, 4);
+      g->addWidget(ytMicMeter_, 3, 1, 1, 4);
       g->setColumnStretch(1, 1);
-      ytBody->addWidget(makeCard("STREAM AUDIO MIX (SYS + MIC -> STEREO AAC)", g, this));
+      ytBody->addWidget(makeCard("STREAM AUDIO MIX & BALANCE (SYS + MIC -> STEREO AAC)", g, this));
 
       connect(ytSysCombo_, &QComboBox::currentIndexChanged, this, [this] {
         if (!loading_ && sysCombo_->currentIndex() != ytSysCombo_->currentIndex())
@@ -615,6 +779,16 @@ void MainPanel::build() {
         if (!loading_ && micCombo_->currentIndex() != ytMicCombo_->currentIndex())
           micCombo_->setCurrentIndex(ytMicCombo_->currentIndex());
       });
+      connect(ytSysVolSlider_, &QSlider::valueChanged, this, [this](int v) {
+        ytSysVolLabel_->setText(QString("%1%").arg(v));
+        if (sysVolSlider_->value() != v) sysVolSlider_->setValue(v);
+      });
+      connect(ytMicVolSlider_, &QSlider::valueChanged, this, [this](int v) {
+        ytMicVolLabel_->setText(QString("%1%").arg(v));
+        if (micVolSlider_->value() != v) micVolSlider_->setValue(v);
+      });
+      connect(ytSysMuteBtn_, &QPushButton::toggled, this, [this](bool on) { setSysMuted(on); });
+      connect(ytMicMuteBtn_, &QPushButton::toggled, this, [this](bool on) { setMicMuted(on); });
       connect(sysCombo_, &QComboBox::currentIndexChanged, this, [this] {
         if (ytSysCombo_ && ytSysCombo_->currentIndex() != sysCombo_->currentIndex()) {
           QSignalBlocker b(ytSysCombo_);
@@ -669,10 +843,23 @@ void MainPanel::build() {
   else if (s.streamHeight == 720 && s.streamBitrateKbps == 4500) sp = "720_4500";
   else if (s.streamHeight == 2160 && s.streamBitrateKbps == 30000) sp = "2160_30000";
   pick(streamPresetCombo_, sp);
+  localCopyCheck_->setChecked(s.recordWhileStreaming);
+  ytLocalCopyCheck_->setChecked(s.recordWhileStreaming);
+  sysVolSlider_->setValue(s.sysVolumePct);
+  ytSysVolSlider_->setValue(s.sysVolumePct);
+  sysVolLabel_->setText(QString("%1%").arg(s.sysVolumePct));
+  ytSysVolLabel_->setText(QString("%1%").arg(s.sysVolumePct));
+  micVolSlider_->setValue(s.micVolumePct);
+  ytMicVolSlider_->setValue(s.micVolumePct);
+  micVolLabel_->setText(QString("%1%").arg(s.micVolumePct));
+  ytMicVolLabel_->setText(QString("%1%").arg(s.micVolumePct));
   dirEdit_->setText(QString::fromStdString(s.outDir));
   if (s.videoSource == "monitor") rbMonitor_->setChecked(true);
   else if (s.videoSource == "dxgi") rbDxgi_->setChecked(true);
   loading_ = false;
+  setSysMuted(s.sysMuted);
+  setMicMuted(s.micMuted);
+  refreshChannelCombos();
   syncKeyUi();
 }
 
@@ -764,9 +951,15 @@ vv::RecordConfig MainPanel::currentConfig() const {
   c.quality = qualityCombo_->currentData().toString().toStdString();
   c.bitrateKbps = bitrate_->value();
   c.output = outputCombo_->currentData().toString().toStdString();
+  c.streamChannel = activeChannelId().toStdString();
   c.streamUrl = urlEdit_->text().toStdString();
   c.streamBitrateKbps = streamKbps_->value();
   c.streamHeight = streamResCombo_ ? streamResCombo_->currentData().toInt() : c.streamHeight;
+  c.recordWhileStreaming = localCopyCheck_ && localCopyCheck_->isChecked();
+  c.sysVolumePct = sysVolSlider_ ? sysVolSlider_->value() : 100;
+  c.micVolumePct = micVolSlider_ ? micVolSlider_->value() : 100;
+  c.sysMuted = sysMuted();
+  c.micMuted = micMuted();
   c.outDir = dirEdit_->text().toStdString();
   if (!override_.empty()) {
     vv::json j = c.toJson();
@@ -811,27 +1004,276 @@ QString MainPanel::outputKind() const { return outputCombo_ ? outputCombo_->curr
 // The stream key lives in the controller (DPAPI blob under the settings dir): the panel, the
 // menu and the HUD only ever learn whether one is set.
 bool MainPanel::streamKeySet() {
-  vv::json r = app_.handle({{"cmd", "get_config"}});
+  vv::json r = app_.handle({{"cmd", "get_config"}, {"channel", activeChannelId().toStdString()}});
   return r.value("config", vv::json::object()).value("streamKeySet", false);
 }
 
 void MainPanel::syncKeyUi() {
   const bool set = streamKeySet();
-  if (keyStateLabel_) keyStateLabel_->setText(set ? "KEY: SET (DPAPI)" : "KEY: NOT SET");
-  if (ytKeyStateLabel_) ytKeyStateLabel_->setText(set ? "Stream key: SET (encrypted)" : "Stream key: NOT SET");
+  const QString chLbl = activeChannelLabel();
+  if (keyStateLabel_) keyStateLabel_->setText(set ? QString("KEY: SET (%1)").arg(chLbl) : QString("KEY: NOT SET (%1)").arg(chLbl));
+  if (ytKeyStateLabel_) ytKeyStateLabel_->setText(set ? QString("Stream key: SET for '%1'").arg(chLbl) : QString("Stream key: NOT SET for '%1'").arg(chLbl));
   if (keyEdit_) keyEdit_->setPlaceholderText(set ? "•••••••• (key stored encrypted)" : "stream key (stored encrypted)");
   if (ytKeyEdit_) ytKeyEdit_->setPlaceholderText(set ? "•••••••• (key stored encrypted)" : "Paste stream key from YouTube Studio > Go live");
   if (keyClear_) keyClear_->setEnabled(set && recState() == RecState::Idle && !starting_);
   if (ytKeyClear_) ytKeyClear_->setEnabled(set && recState() == RecState::Idle && !starting_);
+  if (studioBtn_) {
+    studioBtn_->setText(QString("STUDIO (%1)").arg(chLbl.left(14)));
+    studioBtn_->setToolTip(QString("Open YouTube Studio for channel '%1'").arg(chLbl));
+  }
+  if (ytStudioBtn_) {
+    ytStudioBtn_->setText(QString("STUDIO: %1").arg(chLbl.left(18)));
+    ytStudioBtn_->setToolTip(QString("Open YouTube Studio for channel '%1'").arg(chLbl));
+  }
+  if (ytDelChBtn_) ytDelChBtn_->setEnabled(channels().size() > 1 && recState() == RecState::Idle && !starting_);
 }
 
 bool MainPanel::setStreamKey(const std::string& key) {
-  vv::json r = app_.handle({{"cmd", "set_stream_key"}, {"key", key}});
+  vv::json r = app_.handle({{"cmd", "set_stream_key"}, {"key", key}, {"channel", activeChannelId().toStdString()}});
   if (!r.value("ok", false)) showError(QString::fromStdString(r.value("error", std::string("cannot store the stream key"))));
   else showError({});
+  refreshChannelCombos();
   syncKeyUi();
   emit changed();
   return r.value("ok", false);
+}
+
+std::vector<vv::StreamChannel> MainPanel::channels() const {
+  if (prefs_ && !prefs_->channels.empty()) return prefs_->channels;
+  return {vv::StreamChannel{}};
+}
+
+QString MainPanel::activeChannelId() const {
+  if (channelCombo_ && channelCombo_->currentIndex() >= 0) {
+    QString id = channelCombo_->currentData().toString();
+    if (!id.isEmpty()) return id;
+  }
+  return QString::fromStdString(app_.config().streamChannel.empty() ? "default" : app_.config().streamChannel);
+}
+
+QString MainPanel::activeChannelLabel() const {
+  std::string cid = activeChannelId().toStdString();
+  for (const auto& ch : channels()) {
+    if (ch.id == cid) return QString::fromStdString(ch.label);
+  }
+  return QString("Main Channel");
+}
+
+void MainPanel::refreshChannelCombos() {
+  if (!channelCombo_ || !ytChannelCombo_) return;
+  QString cur = activeChannelId();
+  auto chs = channels();
+  bool found = false;
+  for (const auto& c : chs) if (QString::fromStdString(c.id) == cur) { found = true; break; }
+  if (!found && !chs.empty()) cur = QString::fromStdString(chs.front().id);
+
+  QSignalBlocker b1(channelCombo_), b2(ytChannelCombo_);
+  channelCombo_->clear();
+  ytChannelCombo_->clear();
+  int sel = 0;
+  for (int i = 0; i < (int)chs.size(); ++i) {
+    const auto& c = chs[i];
+    std::string sec = (c.id.empty() || c.id == "default") ? "stream_key" : ("stream_key_" + c.id);
+    bool hasKey = !vv::loadSecret(sec).empty();
+    QString itemText = QString("%1  [%2]").arg(QString::fromStdString(c.label), hasKey ? "KEY SET" : "NO KEY");
+    QString cid = QString::fromStdString(c.id);
+    channelCombo_->addItem(itemText, cid);
+    ytChannelCombo_->addItem(itemText, cid);
+    if (cid == cur) sel = i;
+  }
+  channelCombo_->setCurrentIndex(sel);
+  ytChannelCombo_->setCurrentIndex(sel);
+
+  for (const auto& c : chs) {
+    if (QString::fromStdString(c.id) == cur) {
+      if (ytChannelLabelEdit_) {
+        QSignalBlocker bl(ytChannelLabelEdit_);
+        ytChannelLabelEdit_->setText(QString::fromStdString(c.label));
+      }
+      if (ytStudioUrlEdit_) {
+        QSignalBlocker bs(ytStudioUrlEdit_);
+        ytStudioUrlEdit_->setText(QString::fromStdString(c.studioUrl));
+      }
+      if (!c.streamUrl.empty()) {
+        QString u = QString::fromStdString(c.streamUrl);
+        if (urlEdit_) urlEdit_->setText(u);
+        if (ytUrlEdit_) ytUrlEdit_->setText(u);
+        if (streamServerCombo_) {
+          QSignalBlocker b3(streamServerCombo_);
+          int idx = streamServerCombo_->findData(u);
+          streamServerCombo_->setCurrentIndex(idx >= 0 ? idx : streamServerCombo_->findData("custom"));
+        }
+      }
+      break;
+    }
+  }
+}
+
+void MainPanel::selectChannel(const QString& id) {
+  if (!channelCombo_) return;
+  int i = channelCombo_->findData(id);
+  if (i >= 0) {
+    QSignalBlocker b1(channelCombo_), b2(ytChannelCombo_);
+    channelCombo_->setCurrentIndex(i);
+    if (ytChannelCombo_) ytChannelCombo_->setCurrentIndex(i);
+  }
+  refreshChannelCombos();
+  syncKeyUi();
+  persist();
+}
+
+void MainPanel::promptAddChannel() {
+  if (!prefs_) return;
+  bool ok = false;
+  QString lbl = QInputDialog::getText(this, "New YouTube Channel",
+                                      "Channel label (e.g. Second Channel, Gaming, Tech):",
+                                      QLineEdit::Normal, "", &ok).trimmed();
+  if (!ok || lbl.isEmpty()) return;
+  QString studio = QInputDialog::getText(this, "YouTube Studio Link / Channel ID",
+                                         "Paste the Channel ID (UC...) or YouTube Studio URL for '" + lbl + "' (optional):",
+                                         QLineEdit::Normal, "https://studio.youtube.com/", &ok).trimmed();
+  vv::StreamChannel ch;
+  ch.id = "ch_" + std::to_string(vv::nowUs());
+  ch.label = lbl.toStdString();
+  ch.studioUrl = studio.isEmpty() ? "https://studio.youtube.com/" : studio.toStdString();
+  ch.streamUrl = urlEdit_ ? urlEdit_->text().trimmed().toStdString() : "rtmp://a.rtmp.youtube.com/live2";
+  prefs_->channels.push_back(ch);
+  vv::saveUiPrefs(*prefs_);
+  refreshChannelCombos();
+  selectChannel(QString::fromStdString(ch.id));
+}
+
+void MainPanel::deleteActiveChannel() {
+  if (!prefs_ || prefs_->channels.size() <= 1) return;
+  std::string cid = activeChannelId().toStdString();
+  std::string sec = (cid.empty() || cid == "default") ? "stream_key" : ("stream_key_" + cid);
+  vv::deleteSecret(sec);
+  prefs_->channels.erase(
+      std::remove_if(prefs_->channels.begin(), prefs_->channels.end(), [&](const vv::StreamChannel& c) { return c.id == cid; }),
+      prefs_->channels.end());
+  if (prefs_->channels.empty()) prefs_->channels.push_back(vv::StreamChannel{});
+  vv::saveUiPrefs(*prefs_);
+  refreshChannelCombos();
+  selectChannel(QString::fromStdString(prefs_->channels.front().id));
+}
+
+void MainPanel::openYouTubeStudio() {
+  QString raw = ytStudioUrlEdit_ ? ytStudioUrlEdit_->text().trimmed() : QString();
+  if (raw.isEmpty()) {
+    std::string cid = activeChannelId().toStdString();
+    for (const auto& c : channels()) if (c.id == cid) raw = QString::fromStdString(c.studioUrl).trimmed();
+  }
+  QString url = "https://studio.youtube.com/";
+  if (raw.startsWith("http://") || raw.startsWith("https://")) {
+    url = raw;
+  } else if (raw.startsWith("UC") && raw.size() >= 16) {
+    url = "https://studio.youtube.com/channel/" + raw + "/livestreaming";
+  } else if (raw.startsWith("@")) {
+    url = "https://www.youtube.com/" + raw + "/live";
+  }
+  QDesktopServices::openUrl(QUrl(url));
+}
+
+bool MainPanel::sysMuted() const { return sysMuteBtn_ && sysMuteBtn_->isChecked(); }
+bool MainPanel::micMuted() const { return micMuteBtn_ && micMuteBtn_->isChecked(); }
+
+void MainPanel::setSysMuted(bool on) {
+  for (auto* b : {sysMuteBtn_, ytSysMuteBtn_}) {
+    if (!b) continue;
+    QSignalBlocker sb(b);
+    b->setChecked(on);
+    b->setText(on ? "MUTED" : "MUTE");
+    b->setProperty("muted", on);
+    b->style()->unpolish(b);
+    b->style()->polish(b);
+  }
+  applyAudioMix();
+  persist();
+}
+
+void MainPanel::setMicMuted(bool on) {
+  for (auto* b : {micMuteBtn_, ytMicMuteBtn_}) {
+    if (!b) continue;
+    QSignalBlocker sb(b);
+    b->setChecked(on);
+    b->setText(on ? "MUTED" : "MUTE");
+    b->setProperty("muted", on);
+    b->style()->unpolish(b);
+    b->style()->polish(b);
+  }
+  applyAudioMix();
+  persist();
+}
+
+void MainPanel::applyAudioMix() {
+  app_.recorder().setAudioMix(sysVolSlider_ ? sysVolSlider_->value() : 100,
+                              micVolSlider_ ? micVolSlider_->value() : 100,
+                              sysMuted(), micMuted());
+}
+
+void MainPanel::stopIdleAudio() {
+  if (idleSys_) { idleSys_->stop(); idleSys_.reset(); }
+  if (idleMic_) { idleMic_->stop(); idleMic_.reset(); }
+  idleSysKey_.clear();
+  idleMicKey_.clear();
+}
+
+void MainPanel::pollIdleAudio() {
+  if (!isVisible() || recState() != RecState::Idle || starting_) {
+    stopIdleAudio();
+    return;
+  }
+  vv::RecordConfig c = currentConfig();
+  QString wantMic = micKey();
+  if (wantMic != idleMicKey_) {
+    if (idleMic_) { idleMic_->stop(); idleMic_.reset(); }
+    idleMicKey_ = wantMic;
+    if (c.mic != "none") {
+      idleMic_ = vv::makeMicSource(c);
+      std::string e;
+      if (idleMic_ && !idleMic_->start(e)) idleMic_.reset();
+    }
+  }
+  QString wantSys = QString("%1|%2").arg(QString::fromStdString(c.sys), QString::fromStdString(c.sysDevice));
+  if (c.sys == "app") wantSys += QString("|%1").arg(c.pid);
+  if (wantSys != idleSysKey_) {
+    if (idleSys_) { idleSys_->stop(); idleSys_.reset(); }
+    idleSysKey_ = wantSys;
+    if (c.sys != "none" && !(c.sys == "app" && c.pid == 0)) {
+      idleSys_ = vv::makeSysSource(c);
+      std::string e;
+      if (idleSys_ && !idleSys_->start(e)) idleSys_.reset();
+    }
+  }
+  auto sampleRing = [](vv::IAudioSource* src, float gain, double& rmsDb, double& peakDb) {
+    rmsDb = -120.0;
+    peakDb = -120.0;
+    if (!src) return;
+    size_t avail = src->ring().available();
+    if (!avail) return;
+    std::vector<float> buf(avail * vv::kChannels);
+    size_t n = src->ring().pop(buf.data(), avail);
+    if (!n) return;
+    double sumSq = 0.0, pk = 0.0;
+    for (size_t i = 0; i < n * vv::kChannels; ++i) {
+      double v = std::clamp((double)buf[i] * gain, -1.0, 1.0);
+      double a = std::fabs(v);
+      pk = std::max(pk, a);
+      sumSq += v * v;
+    }
+    double rms = std::sqrt(sumSq / (double)(n * vv::kChannels));
+    rmsDb = rms > 1e-6 ? 20.0 * std::log10(rms) : -120.0;
+    peakDb = pk > 1e-6 ? 20.0 * std::log10(pk) : -120.0;
+  };
+  double sRms = -120, sPeak = -120, mRms = -120, mPeak = -120;
+  float sGain = sysMuted() ? 0.0f : (sysVolSlider_ ? sysVolSlider_->value() / 100.0f : 1.0f);
+  float mGain = micMuted() ? 0.0f : (micVolSlider_ ? micVolSlider_->value() / 100.0f : 1.0f);
+  sampleRing(idleSys_.get(), sGain, sRms, sPeak);
+  sampleRing(idleMic_.get(), mGain, mRms, mPeak);
+  sysMeter_->setLevels(sRms, sPeak);
+  micMeter_->setLevels(mRms, mPeak);
+  if (ytSysMeter_) ytSysMeter_->setLevels(sRms, sPeak);
+  if (ytMicMeter_) ytMicMeter_->setLevels(mRms, mPeak);
 }
 
 void MainPanel::clearStreamKey() { setStreamKey(""); }
@@ -847,7 +1289,13 @@ vv::json MainPanel::streamStatus() const { return app_.recorder().status().value
 
 void MainPanel::setPrefs(vv::UiPrefs* p) {
   prefs_ = p;
-  if (prefs_) setDarkMode(prefs_->darkTheme);
+  if (prefs_) {
+    setDarkMode(prefs_->darkTheme);
+    refreshChannelCombos();
+    QString savedCh = QString::fromStdString(app_.config().streamChannel);
+    if (!savedCh.isEmpty()) selectChannel(savedCh);
+    syncKeyUi();
+  }
   if (shareCombo_ && prefs_) {
     int i = shareCombo_->findData(prefs_->shareTargetMB);
     if (i >= 0 && shareCombo_->currentIndex() != i) {
@@ -961,6 +1409,7 @@ void MainPanel::showError(const QString& m) {
 
 void MainPanel::startRecording() {
   if (recState() != RecState::Idle || starting_) return;
+  stopIdleAudio();
   if (startTh_.joinable()) startTh_.join();
   vv::RecordConfig c = currentConfig();
   if (c.videoSource == "window" && !c.hwnd) {
@@ -1008,13 +1457,14 @@ void MainPanel::poll() {
   RecState s = recState();
   timerLabel_->setText(timerText());
   const bool isStream = outputKind() == "stream";
-  QString st = s == RecState::Idle ? (starting_ ? "STARTING" : "IDLE")
+  QString st = s == RecState::Idle ? (starting_ ? "STARTING" : (isStream ? QString("IDLE · %1").arg(activeChannelLabel()) : QString("IDLE")))
                                    : (isStream && s == RecState::Recording
-                                          ? (streamStatus().value("state", std::string("live")) == "reconnecting" ? "RECONN" : "LIVE")
+                                          ? QString("%1 · %2").arg(streamStatus().value("state", std::string("live")) == "reconnecting" ? "RECONN" : "LIVE", activeChannelLabel())
                                           : QString(vv::stateName(s)).toUpper());
   stateLabel_->setText(st);
   infoLabel_->setText(infoText());
-  recBtn_->setText(s == RecState::Idle ? (isStream ? "GO LIVE" : "REC") : (isStream ? "END STREAM" : "STOP"));
+  recBtn_->setText(s == RecState::Idle ? (isStream ? QString("GO LIVE (%1)").arg(activeChannelLabel().left(14)) : QString("REC"))
+                                       : (isStream ? QString("END STREAM") : QString("STOP")));
   recBtn_->setProperty("active", s != RecState::Idle);
   recBtn_->style()->unpolish(recBtn_);
   recBtn_->style()->polish(recBtn_);
@@ -1028,12 +1478,17 @@ void MainPanel::poll() {
   auto m = vv::Telemetry::get().snapshot();
   auto num = [&](const char* k, double d) { return m.contains(k) ? m[k].get<double>() : d; };
   bool live = s == RecState::Recording;
-  double sRms = live ? num("audio.sys.rms_db", -120) : -120, sPeak = live ? num("audio.sys.peak_db", -120) : -120;
-  double mRms = live ? num("audio.mic.rms_db", -120) : -120, mPeak = live ? num("audio.mic.peak_db", -120) : -120;
-  sysMeter_->setLevels(sRms, sPeak);
-  micMeter_->setLevels(mRms, mPeak);
-  if (ytSysMeter_) ytSysMeter_->setLevels(sRms, sPeak);
-  if (ytMicMeter_) ytMicMeter_->setLevels(mRms, mPeak);
+  if (live) {
+    stopIdleAudio();
+    double sRms = num("audio.sys.rms_db", -120), sPeak = num("audio.sys.peak_db", -120);
+    double mRms = num("audio.mic.rms_db", -120), mPeak = num("audio.mic.peak_db", -120);
+    sysMeter_->setLevels(sRms, sPeak);
+    micMeter_->setLevels(mRms, mPeak);
+    if (ytSysMeter_) ytSysMeter_->setLevels(sRms, sPeak);
+    if (ytMicMeter_) ytMicMeter_->setLevels(mRms, mPeak);
+  } else {
+    pollIdleAudio();
+  }
 
   if (s != last || starting_ != lastStarting) {
     last = s;
@@ -1044,7 +1499,7 @@ void MainPanel::poll() {
     emit changed();
   }
   const bool canEdit = s == RecState::Idle && !starting_;
-  for (QWidget* w : std::initializer_list<QWidget*>{sysCombo_, micCombo_, containerCombo_, codecCombo_, encoderCombo_, resCombo_, fpsCombo_, qualityCombo_, shareCombo_, winCombo_, monCombo_, outputCombo_, streamKbps_, urlEdit_, keyEdit_, keySave_, ytOutputCombo_, streamServerCombo_, streamPresetCombo_, streamResCombo_, ytFpsCombo_, ytEncoderCombo_, ytSysCombo_, ytMicCombo_, ytKbps_, ytUrlEdit_, ytKeyEdit_, ytKeySave_})
+  for (QWidget* w : std::initializer_list<QWidget*>{sysCombo_, micCombo_, containerCombo_, codecCombo_, encoderCombo_, resCombo_, fpsCombo_, qualityCombo_, shareCombo_, winCombo_, monCombo_, outputCombo_, channelCombo_, addChBtn_, streamKbps_, urlEdit_, keyEdit_, keySave_, localCopyCheck_, ytChannelCombo_, ytAddChBtn_, ytChannelLabelEdit_, ytStudioUrlEdit_, ytOutputCombo_, ytLocalCopyCheck_, streamServerCombo_, streamPresetCombo_, streamResCombo_, ytFpsCombo_, ytEncoderCombo_, ytSysCombo_, ytMicCombo_, ytKbps_, ytUrlEdit_, ytKeyEdit_, ytKeySave_})
     if (w) w->setEnabled(canEdit);
 }
 

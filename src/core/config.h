@@ -32,9 +32,17 @@ struct RecordConfig {
 
   // Output destination: a local file, or an RTMP stream (the key is NOT part of the config).
   std::string output = "file";   // file | stream
+  std::string streamChannel = "default";  // selected YouTube channel profile id
   std::string streamUrl = "rtmp://a.rtmp.youtube.com/live2";  // ingest base, YouTube by default
   int streamBitrateKbps = 6000;  // 1000..51000
   int streamHeight = 1080;       // 0 keeps the source size
+  bool recordWhileStreaming = false;  // save a local .mkv copy alongside the RTMP stream
+
+  // Audio mix & mute (applied to both recording and streaming)
+  int sysVolumePct = 100;  // 0..200%
+  int micVolumePct = 100;  // 0..200%
+  bool sysMuted = false;
+  bool micMuted = false;
 
   // Synthetic sources (test harness)
   double synthSysHz = 440.0;
@@ -51,6 +59,15 @@ std::string settingsPath();
 RecordConfig loadSettings();
 void saveSettings(const RecordConfig& c);
 
+struct StreamChannel {
+  std::string id = "default";
+  std::string label = "Main Channel";
+  std::string studioUrl = "https://studio.youtube.com/";
+  std::string streamUrl = "rtmp://a.rtmp.youtube.com/live2";
+  json toJson() const;
+  static StreamChannel fromJson(const json& j);
+};
+
 // UI-only preferences, kept in ui.json beside config.json.
 struct UiPrefs {
   bool hud = true;
@@ -58,6 +75,7 @@ struct UiPrefs {
   int shareTargetMB = 0;      // 0 = off (Task 5)
   bool shareToClipboard = true;
   bool darkTheme = false;     // false = light sage, true = dark charcoal/sage
+  std::vector<StreamChannel> channels;
   json toJson() const;
   static UiPrefs fromJson(const json& j);
 };
