@@ -32,6 +32,13 @@ TrayController::TrayController(MainPanel* panel, QObject* parent) : QObject(pare
 
 QString TrayController::tooltip() const {
   vv::RecordConfig c = panel_->currentConfig();
+  if (panel_->recState() == vv::RecState::Recording && c.output == "stream") {
+    vv::json st = panel_->streamStatus();
+    QString label = st.value("state", std::string("live")) == "reconnecting" ? "RECONN" : "LIVE";
+    return QString("Voloire-video | %1 %2 | %3 Mbps")
+        .arg(label, panel_->timerText())
+        .arg(st.value("kbps", 0.0) / 1000.0, 0, 'f', 1);
+  }
   QString state = QString(vv::stateName(panel_->recState())).toUpper();
   if (panel_->recState() == vv::RecState::Idle && panel_->starting()) state = "STARTING";
   QString res = c.outHeight ? QString("%1p").arg(c.outHeight) : QString("source size");

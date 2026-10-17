@@ -38,6 +38,15 @@ class MainPanel : public QWidget {
   void setQuality(const QString& v);  // high | standard | light | minimal | custom
   void setMic(const QString& mode, const QString& id = {});   // default | device | none
   void setSys(const QString& mode, const QString& id = {});   // app | system | none
+  void setOutput(const QString& v);   // file | stream
+  QString outputKind() const;
+
+  // Streaming: the key is held by the controller (DPAPI, never in ui.json).
+  bool streamKeySet();
+  bool setStreamKey(const std::string& key);  // empty clears it
+  void clearStreamKey();
+  void promptStreamKey();                     // masked dialog, from the YouTube menu
+  vv::json streamStatus() const;
 
   // Share copy of the last recording: the target size and the clipboard live in ui.json.
   void setShareTarget(int mb);   // 0 = off
@@ -99,9 +108,11 @@ class MainPanel : public QWidget {
 
   QRadioButton *rbWindow_, *rbMonitor_, *rbDxgi_;
   QComboBox *winCombo_, *monCombo_, *sysCombo_, *micCombo_, *containerCombo_, *codecCombo_, *encoderCombo_, *resCombo_,
-      *fpsCombo_, *qualityCombo_, *shareCombo_;
-  QSpinBox* bitrate_;
-  QLineEdit* dirEdit_;
+      *fpsCombo_, *qualityCombo_, *shareCombo_, *outputCombo_;
+  QSpinBox *bitrate_, *streamKbps_;
+  QLineEdit *dirEdit_, *urlEdit_, *keyEdit_;
+  QPushButton* keySave_;
+  QWidget* streamCard_;  // the Stream group, shown in stream mode
   LevelMeter *sysMeter_, *micMeter_;
   QLabel *timerLabel_, *stateLabel_, *infoLabel_, *errLabel_;
   QPushButton *recBtn_, *pauseBtn_;

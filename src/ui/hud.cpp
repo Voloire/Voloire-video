@@ -39,25 +39,40 @@ HudBar::~HudBar() = default;
 
 std::string HudBar::dotName() const {
   switch (panel_->recState()) {
-    case vv::RecState::Recording: return "recording";
+    case vv::RecState::Recording:
+      if (panel_->outputKind() == "stream")  // live on YouTube: amber when the ingest is gone
+        return panel_->streamStatus().value("state", std::string("live")) == "reconnecting" ? "reconnecting" : "live";
+      return "recording";
     case vv::RecState::Paused: return "paused";
     default: return panel_->errorText().isEmpty() ? "idle" : "error";
   }
 }
 
+QString HudBar::displayText() const {
+  QString t = label_ + "  " + panel_->timerText();
+  if (!kbps_.isEmpty()) t += "  " + kbps_;
+  return t;
+}
+
 void HudBar::refreshContent() {
-  QString label;
+  QString label, kbps;
+  const bool stream = panel_->recState() == vv::RecState::Recording && panel_->outputKind() == "stream";
   vv::json sh = panel_->shareStatus();
   if (sh.value("state", std::string("idle")) == "running") {
     label = QString("SHARE %1%").arg((int)std::lround(sh.value("progress", 0.0) * 100));
+  } else if (stream) {
+    vv::json st = panel_->streamStatus();
+    label = st.value("state", std::string("live")) == "reconnecting" ? "RECONN" : "LIVE";
+    kbps = QString("%1M").arg(st.value("kbps", 0.0) / 1000.0, 0, 'f', 1);
   } else {
     label = QString(vv::stateName(panel_->recState())).toUpper();
     if (panel_->recState() == vv::RecState::Idle && !panel_->errorText().isEmpty()) label = "ERROR";
   }
   label_ = label;
+  kbps_ = kbps;
   QFont f(monoFamily());
   f.setPixelSize(12);
-  int w = std::max(160, QFontMetrics(f).horizontalAdvance(label_ + "  " + panel_->timerText()) + 44);
+  int w = std::max(160, QFontMetrics(f).horizontalAdvance(displayText()) + 44);
   if (width() != w || height() != 28) setFixedSize(w, 28);
   setToolTip(panel_->errorText().isEmpty() ? QString("Voloire-video | %1 | %2").arg(label_, panel_->timerText())
                                            : panel_->errorText());
@@ -82,8 +97,8 @@ void HudBar::paintEvent(QPaintEvent*) {
   const std::string dot = dotName();
   QColor c = hud::tint;
   double alpha = 0.5;  // idle
-  if (dot == "recording") { c = hud::rec; alpha = pulse_ ? 1.0 : 0.4; }
-  else if (dot == "paused") { c = hud::paused; alpha = 1.0; }
+  if (dot == "recording" || dot == "live") { c = hud::rec; alpha = pulse_ ? 1.0 : 0.4; }
+  else if (dot == "paused" || dot == "reconnecting") { c = hud::paused; alpha = 1.0; }  // amber: ingest gone
   else if (dot == "error") { c = hud::rec; alpha = 1.0; }
   c.setAlphaF(alpha);
   p.setPen(Qt::NoPen);
@@ -96,7 +111,7 @@ void HudBar::paintEvent(QPaintEvent*) {
     p.setFont(f);
     p.setPen(hud::tint);
     p.drawText(QRectF(r.left() + 24, r.top(), r.width() - 30, r.height()), Qt::AlignVCenter | Qt::AlignLeft,
-               label_ + "  " + panel_->timerText());
+               displayText());
   }
 }
 
@@ -211,14 +226,17 @@ bool HudBar::trigger(const std::vector<std::string>& path) {
 }
 
 vv::json HudBar::state() const {
+  auto* self = const_cast<HudBar*>(this);
+  self->rebuildMenu();  // like the tray: a dump is always of the current menu
   RECT r{};
-  GetWindowRect((HWND)const_cast<HudBar*>(this)->winId(), &r);
+  GetWindowRect((HWND)self->winId(), &r);
   return {{"visible", isVisible()},
           {"x", (int)r.left},
           {"y", (int)r.top},
           {"w", (int)(r.right - r.left)},
           {"h", (int)(r.bottom - r.top)},
           {"label", label_.toStdString()},
+          {"kbps", kbps_.toStdString()},
           {"timer", panel_->timerText().toStdString()},
           {"dot", dotName()},
           {"excludedFromCapture", excluded_},

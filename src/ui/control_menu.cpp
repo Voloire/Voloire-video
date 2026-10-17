@@ -50,14 +50,17 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
   using RS = RecState;
   RS st = panel.recState();
   MainPanel* p = &panel;
+  const bool stream = panel.outputKind() == "stream";
 
-  QAction* startStop = menu.addAction(st == RS::Idle ? "Start recording" : "Stop recording");
-  startStop->setEnabled(!panel.starting());
+  QAction* startStop = menu.addAction(st == RS::Idle ? (stream ? "Go live" : "Start recording")
+                                                     : (stream ? "End stream" : "Stop recording"));
+  // Going live needs a stored key: without one the entry stays disabled.
+  startStop->setEnabled(!panel.starting() && (st != RS::Idle || !stream || panel.streamKeySet()));
   QObject::connect(startStop, &QAction::triggered, &menu, [p] {
     if (p->recState() == RS::Idle) p->startRecording(); else p->stopRecording();
   });
   QAction* pause = menu.addAction(st == RS::Paused ? "Resume" : "Pause");
-  pause->setEnabled(st == RS::Recording || st == RS::Paused);
+  pause->setEnabled((st == RS::Recording || st == RS::Paused) && !stream);  // a stream cannot pause
   QObject::connect(pause, &QAction::triggered, &menu, [p] { p->togglePause(); });
   menu.addSeparator();
 
@@ -168,6 +171,34 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
     vv::json sh = panel.shareStatus();
     again->setEnabled(!panel.lastRecording().isEmpty() && sh.value("state", std::string("idle")) != "running");
     QObject::connect(again, &QAction::triggered, &menu, [p] { p->shareLastRecording(); });
+  }
+
+  // Output: a recording on disk, or a YouTube live stream.
+  QMenu* out = menu.addMenu("Output");
+  out->setEnabled(idle);  // locked while live
+  {
+    auto* grp = new QActionGroup(out);
+    grp->addAction(radio(out, "Record to file", c.output == "file", [p] { p->setOutput("file"); }));
+    grp->addAction(radio(out, "Stream to YouTube", c.output == "stream", [p] { p->setOutput("stream"); }));
+  }
+
+  // YouTube: the key (its fate is the only thing shown) and the studio page.
+  QMenu* yt = menu.addMenu("YouTube");
+  {
+    const bool keySet = panel.streamKeySet();
+    QAction* info = yt->addAction(keySet ? "Stream key: set" : "Stream key: not set");
+    info->setEnabled(false);
+    QAction* pick = yt->addAction("Set stream key...");
+    pick->setEnabled(idle);
+    QObject::connect(pick, &QAction::triggered, &menu, [p] { p->promptStreamKey(); });
+    QAction* clr = yt->addAction("Clear stream key");
+    clr->setEnabled(idle && keySet);
+    QObject::connect(clr, &QAction::triggered, &menu, [p] { p->clearStreamKey(); });
+    yt->addSeparator();
+    QAction* studio = yt->addAction("Open YouTube Studio");
+    QObject::connect(studio, &QAction::triggered, &menu, [] {
+      QDesktopServices::openUrl(QUrl("https://studio.youtube.com/"));  // write the title, copy the key
+    });
   }
 
   // Audio devices

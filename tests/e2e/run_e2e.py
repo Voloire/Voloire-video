@@ -1054,6 +1054,108 @@ def sc_stream_unreachable(out):
     return rep
 
 
+def sc_ui_stream(out):
+    rep = Report("ui_stream")
+    d = out / "ui_stream"
+    d.mkdir(parents=True, exist_ok=True)
+    from fakes.rtmp_ingest import RtmpIngest
+    if not rep.check("ffmpeg build has the rtmp protocol", capabilities()["rtmp"]):
+        return rep
+    key = "sk-live-uistream-abcd1234"
+    ing = RtmpIngest(d, key=key)
+    ing.start()
+    subj = Subject(d, title="VV TestSubject Stream", hz=440)
+    gui = Gui(d, "vv-e2e-ui-stream")
+    dumps = []  # every ui_state dumped, scanned for the key at the end
+    try:
+        c = gui.c
+
+        def ui_state():
+            s = c.call(cmd="ui_state")
+            dumps.append(json.dumps(s))
+            return s
+
+        def hud_state():
+            return ui_state().get("hud") or {}
+
+        def hud_action(text):
+            return next((m for m in hud_state().get("menu", []) if m.get("text") == text), None)
+
+        def hud_submenu(text):
+            a = hud_action(text)
+            return a.get("menu", []) if a else []
+
+        rep.check("gui answers ping over the control pipe", c.call(cmd="ping")["ok"])
+        c.call(cmd="ui_override", config={"outDir": str(d / "rec"), "name": "uistream", "mic": "none", "sys": "none",
+                                          "fps": 30, "streamUrl": ing.url, "telemetryDir": str(d / "telemetry")})
+
+        # Source and output, both from the status bar's menu.
+        src = [m for m in ui_state()["menu"] if m.get("text") == "Source"][0]["menu"]
+        item = [m["text"] for m in src if "VV TestSubject Stream" in m.get("text", "")][0]
+        rep.check("hud menu: Source > test window",
+                  c.call(cmd="ui_trigger", path=["Source", item], surface="hud")["ok"])
+        rep.check("hud menu: Output > Stream to YouTube",
+                  c.call(cmd="ui_trigger", path=["Output", "Stream to YouTube"], surface="hud")["ok"])
+        live = hud_action("Go live")
+        rep.check("with no key: Go live is disabled", live is not None and live["enabled"] is False, live)
+        yt = hud_submenu("YouTube")
+        rep.check("YouTube info line: Stream key: not set",
+                  bool(yt) and yt[0]["text"] == "Stream key: not set", yt[0]["text"] if yt else yt)
+
+        # The key comes from YouTube Studio; here it arrives over the pipe (dialogs are not drivable).
+        r = c.call(cmd="set_stream_key", key=key)
+        rep.check("set_stream_key over the pipe", r.get("ok") is True and r.get("streamKeySet") is True, r)
+        live = hud_action("Go live")
+        rep.check("with a key: Go live is enabled", live is not None and live["enabled"] is True, live)
+        yt = hud_submenu("YouTube")
+        rep.check("YouTube info line: Stream key: set",
+                  bool(yt) and yt[0]["text"] == "Stream key: set", yt[0]["text"] if yt else yt)
+
+        # Go live from the bar, run for 5 s, end it from the bar.
+        rep.check("hud menu: Go live", c.call(cmd="ui_trigger", path=["Go live"], surface="hud")["ok"])
+        end = time.time() + 20
+        while time.time() < end:
+            h = hud_state()
+            if h.get("dot") == "live" and h.get("label") == "LIVE":
+                break
+            time.sleep(0.2)
+        h = hud_state()
+        rep.check("hud: live dot", h.get("dot") == "live", h.get("dot"))
+        rep.check("hud: LIVE label", h.get("label") == "LIVE", h.get("label"))
+        rep.check("hud: the rate is on the bar", (h.get("kbps") or "").endswith("M"), h.get("kbps"))
+        rep.check("Pause is disabled in stream mode", (hud_action("Pause") or {}).get("enabled") is False)
+        rep.check("Output is locked while live", (hud_action("Output") or {}).get("enabled") is False)
+        rep.check("the first action is End stream", hud_action("End stream") is not None)
+        s = ui_state()
+        rep.check("tooltip: LIVE with the rate",
+                  s["tooltip"].startswith("Voloire-video | LIVE ") and "Mbps" in s["tooltip"], s["tooltip"])
+        rep.check("ingest: connection received", ing.wait_connected(20))
+        time.sleep(5)
+        rep.check("hud menu: End stream", c.call(cmd="ui_trigger", path=["End stream"], surface="hud")["ok"])
+        end = time.time() + 20
+        while time.time() < end:
+            h = hud_state()
+            if h.get("dot") == "idle" and h.get("label") == "IDLE":
+                break
+            time.sleep(0.2)
+        h = hud_state()
+        rep.check("hud: back to idle", h.get("dot") == "idle", h.get("dot"))
+        u = ui_state()
+        rep.check("state returns to idle", u["state"] == "idle", u["state"])
+
+        ing.stop()
+        if rep.check("ingest: received file written", ing.received.exists()):
+            ok, why = decodes_clean(ing.received)
+            rep.check("ingest: decodes clean", ok, why)
+        hits = scan_for_secrets([str(d / "telemetry"), str(d / "settings"), *dumps], [key])
+        rep.check("no key leak in the dumps, the settings or the telemetry", not hits, hits)
+    finally:
+        gui.close()
+        subj.stop()
+        ing.stop()
+    return rep
+
+
 def sc_installers(out):
     import sc_installers
     return sc_installers.run(out)
@@ -1080,6 +1182,7 @@ SCENARIOS = {
     "errors": sc_errors,
     "ui": sc_ui,
     "hud": sc_hud,
+    "ui_stream": sc_ui_stream,
     "soak": sc_longer_soak,
     "installers": sc_installers,
 }

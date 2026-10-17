@@ -40,6 +40,7 @@ class HudBar : public QWidget {
   void rebuildMenu();
   void applyExclusion();
   void restorePosition();
+  QString displayText() const;  // label, timer and (when streaming) the rate
 
   MainPanel* panel_;
   vv::UiPrefs* prefs_;
@@ -52,6 +53,7 @@ class HudBar : public QWidget {
   bool dragging_ = false, moved_ = false;
   QPoint dragFrom_;
   QString label_;
+  QString kbps_;
 };
 
 }  // namespace vv::ui
