@@ -171,6 +171,66 @@ def sc_quality_presets(out):
     return rep
 
 
+def sc_share_copy(out):
+    rep = Report("share_copy")
+    d = out / "share_copy"
+    # 20 s of 1080p60 high quality in a non-ASCII directory: the share copy lands beside it.
+    # Without the continuous MIC tone the SYS beeps stay recognisable in the single shared
+    # audio track, which is what the A/V sync check on track 0 measures.
+    src_dir = d / "Città"
+    rc, res, err = run_cli(["record", "--synthetic", "--mic", "none", "--duration", 20, "--fps", 60, "--height", 1080,
+                            "--encoder", "mf",  # matches CI (auto -> mf); the source encoder must not change the verdicts
+                            "--quality", "high", "--out", src_dir, "--name", "big"], timeout=240)
+    if not rep.check("source: 20 s 1080p60 high recorded", rc == 0 and res, f"rc={rc} {err[-200:]}"):
+        return rep
+    rc, share, err = run_cli(["share", res["path"], "--target-mb", 8], timeout=300)
+    if not rep.check("share: exit code 0", rc == 0 and share, f"rc={rc} {err[-200:]}"):
+        return rep
+    sp = Path(str(share.get("path", "")))
+    rep.check("share: named after the source and the target", sp.name == Path(res["path"]).stem + "_share_8MB.mp4",
+              sp.name)
+    rep.check("share: beside the source in the non-ASCII dir", sp.exists() and sp.parent == Path(res["path"]).parent,
+              str(sp))
+    size = sp.stat().st_size if sp.exists() else 0
+    rep.check("share: size <= 8 MiB", 0 < size <= 8 * 1024 * 1024, size)
+    rep.check("share: reported bytes match the file", share.get("bytes") == size, f"{share.get('bytes')} vs {size}")
+    info = probe(sp)
+    if info:
+        rep.check("share: one video stream", len(streams(info, "video")) == 1)
+        a = streams(info, "audio")
+        rep.check("share: exactly 1 audio stream", len(a) == 1, len(a))
+    ok, why = decodes_clean(sp)
+    rep.check("share: decodes end to end with no error", ok, why)
+    check_sync_and_tones(rep, sp, tol_ms=150, check_mic_tone=False, isolation=False)
+    head = sp.read_bytes()[:65536]
+    i, j = head.find(b"moov"), head.find(b"mdat")
+    rep.check("share: moov atom before mdat", i >= 0 and j >= 0 and i < j, f"moov@{i} mdat@{j}")
+
+    # A recording with no audio at all shares into a video-only file.
+    rc, res, err = run_cli(["record", "--synthetic", "--duration", 3, "--fps", 30, "--sys", "none", "--mic", "none",
+                            "--out", d / "mute", "--name", "mute"], timeout=90)
+    if not rep.check("mute: 3 s recorded without audio", rc == 0 and res, f"rc={rc} {err[-200:]}"):
+        return rep
+    rc, share, err = run_cli(["share", res["path"], "--target-mb", 8], timeout=120)
+    if rep.check("mute share: exit code 0", rc == 0 and share, f"rc={rc} {err[-200:]}"):
+        info = probe(share["path"])
+        a = streams(info, "audio") if info else None
+        rep.check("mute share: 0 audio streams", a is not None and len(a) == 0, len(a) if a is not None else "no probe")
+
+    # 35 s cannot fit in 1 MB with any sane bitrate: the CLI must refuse and leave nothing behind.
+    rc, res, err = run_cli(["record", "--synthetic", "--duration", 35, "--quality", "minimal",
+                            "--out", d / "long", "--name", "long"], timeout=240)
+    if not rep.check("long: 35 s minimal recorded", rc == 0 and res, f"rc={rc} {err[-200:]}"):
+        return rep
+    rc, share, err = run_cli(["share", res["path"], "--target-mb", 1], timeout=120)
+    rep.check("long share: exit code 5", rc == 5, f"rc={rc}")
+    msg = str((share or {}).get("error", ""))
+    rep.check('long share: error says "at most 27 s"', "at most 27 s" in msg, msg)
+    leftovers = sorted(p.name for p in Path(res["path"]).parent.iterdir() if "_share_" in p.name or p.suffix == ".part")
+    rep.check("long share: no share or .part file left", not leftovers, leftovers)
+    return rep
+
+
 def sc_pause_resume(out):
     rep = Report("pause_resume")
     d = out / "pause_resume"
@@ -724,6 +784,7 @@ SCENARIOS = {
     "harness_selftest": sc_harness_selftest,
     "synthetic_basic": sc_synthetic_basic,
     "quality_presets": sc_quality_presets,
+    "share_copy": sc_share_copy,
     "pause_resume": sc_pause_resume,
     "formats": sc_formats,
     "window_app_audio": sc_window_app_audio,

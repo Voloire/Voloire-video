@@ -9,11 +9,16 @@ namespace vv {
 struct EncoderParams {
   std::string path;
   std::string container = "mkv";
+  std::string format;  // forced muxer name for libavformat, empty = guess from the path
   std::string codec = "h264";
   std::string encoder = "auto";
   int width = 0, height = 0;  // output size, even
   int fps = 60;
   int bitrateKbps = 12000;
+  std::string rateControl = "vbr";  // vbr | cbr
+  int gopSeconds = 2;
+  int audioKbps = 160;
+  bool faststart = false;  // MP4 only: moov before mdat instead of fragmented flags
   std::vector<std::string> audioTracks;  // names, e.g. {"SYS", "MIC"}
 };
 

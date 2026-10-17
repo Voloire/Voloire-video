@@ -10,6 +10,7 @@
 #include "devices.h"
 #include "quality.h"
 #include "recorder.h"
+#include "share_copy.h"
 #include "sources.h"
 #include "telemetry.h"
 
@@ -158,4 +159,57 @@ TEST_CASE("Recorder records synthetic sources, pauses and finalises") {
   CHECK(r.durationSec < 3.2);
   CHECK(r.videoFrames > 50);
   CHECK(fs::exists(dir / "telemetry" / "result.json"));
+}
+
+TEST_CASE("planShare fits the target") {
+  SharePlan a = planShare(30, 1920, 1080, 60, 25, true);
+  CHECK(a.error.empty());
+  CHECK(a.videoKbps >= 6200);
+  CHECK(a.videoKbps <= 6400);
+  CHECK(a.width == 1920);
+  CHECK(a.height == 1080);
+  CHECK(a.fps == 60);
+  CHECK(a.audioKbps == 128);
+
+  SharePlan b = planShare(120, 1920, 1080, 60, 10, true);
+  CHECK(b.error.empty());
+  CHECK(b.height == 480);
+  CHECK(b.fps == 30);
+  CHECK(b.videoKbps >= 500);
+  CHECK(b.videoKbps <= 530);
+
+  SharePlan c = planShare(3600, 1920, 1080, 60, 10, true);
+  CHECK(c.error.find("at most 277 s") != std::string::npos);
+
+  SharePlan d = planShare(10, 1280, 720, 30, 25, false);
+  CHECK(d.error.empty());
+  CHECK(d.audioKbps == 0);
+}
+
+TEST_CASE("makeShareCopy produces a playable file under the target") {
+  auto dir = tempDir("share");
+  Recorder rec;
+  RecordConfig c;
+  c.videoSource = "synthetic";
+  c.sys = "synthetic";
+  c.mic = "synthetic";
+  c.fps = 30;
+  c.synthFps = 30;
+  c.encoder = "mf";
+  c.outDir = strOf(dir);
+  c.telemetryDir = strOf(dir / "telemetry");
+  std::string err;
+  REQUIRE_MESSAGE(rec.start(c, err), err);
+  std::this_thread::sleep_for(std::chrono::seconds(6));
+  RecResult r = rec.stop();
+  REQUIRE_MESSAGE(r.error.empty(), r.error);
+  REQUIRE(r.bytes > 10000);
+
+  ShareResult s = makeShareCopy(r.path, 1);
+  CHECK_MESSAGE(s.error.empty(), s.error);
+  CHECK(s.bytes > 0);
+  CHECK(s.bytes <= (1u << 20));
+  CHECK(fs::exists(s.path));
+  CHECK(s.path.find("_share_1MB.mp4") != std::string::npos);
+  CHECK_FALSE(fs::exists(s.path + ".part"));
 }

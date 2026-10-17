@@ -34,7 +34,7 @@ jobs:
 
       - name: End-to-end (synthetic sources; the runner has no GPU, screen or audio devices)
         shell: pwsh
-        run: python tests\e2e\run_e2e.py --only harness_selftest,synthetic_basic,pause_resume,errors,quality_presets
+        run: python tests\e2e\run_e2e.py --only harness_selftest,synthetic_basic,pause_resume,errors,quality_presets,share_copy
 
       - name: Keep the e2e report
         if: always()

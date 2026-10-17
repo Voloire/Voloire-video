@@ -24,7 +24,7 @@ endif()
 
 add_library(vv_ffmpeg INTERFACE)
 target_include_directories(vv_ffmpeg SYSTEM INTERFACE ${VV_FFMPEG_ROOT}/include)
-foreach(lib avformat avcodec avutil swscale)
+foreach(lib avformat avcodec avutil swscale swresample)
   find_library(VV_FF_${lib} ${lib} PATHS ${VV_FFMPEG_ROOT}/lib NO_DEFAULT_PATH REQUIRED)
   target_link_libraries(vv_ffmpeg INTERFACE ${VV_FF_${lib}})
 endforeach()

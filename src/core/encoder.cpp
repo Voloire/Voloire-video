@@ -90,7 +90,11 @@ struct Muxer::Impl {
     c->framerate = {p.fps, 1};
     c->pix_fmt = AV_PIX_FMT_NV12;
     c->bit_rate = (int64_t)p.bitrateKbps * 1000;
-    c->gop_size = p.fps * 2;
+    if (p.rateControl == "cbr") {
+      c->rc_max_rate = c->bit_rate;
+      c->rc_buffer_size = p.bitrateKbps * 1000;
+    }
+    c->gop_size = p.fps * std::max(1, p.gopSeconds);
     c->max_b_frames = 0;
     c->colorspace = AVCOL_SPC_BT709;
     c->color_primaries = AVCOL_PRI_BT709;
@@ -98,13 +102,14 @@ struct Muxer::Impl {
     c->color_range = AVCOL_RANGE_MPEG;
     if (fmt->oformat->flags & AVFMT_GLOBALHEADER) c->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     std::string n = name;
+    const char* rc = p.rateControl == "cbr" ? "cbr" : "vbr";
     if (n.find("nvenc") != std::string::npos) {
       av_opt_set(c->priv_data, "preset", "p4", 0);
       av_opt_set(c->priv_data, "tune", "hq", 0);
-      av_opt_set(c->priv_data, "rc", "vbr", 0);
+      av_opt_set(c->priv_data, "rc", rc, 0);
     } else if (n.find("amf") != std::string::npos) {
       av_opt_set(c->priv_data, "quality", "balanced", 0);
-      av_opt_set(c->priv_data, "rc", "vbr_peak", 0);
+      av_opt_set(c->priv_data, "rc", p.rateControl == "cbr" ? "cbr" : "vbr_peak", 0);
     } else if (n.find("qsv") != std::string::npos) {
       av_opt_set(c->priv_data, "preset", "medium", 0);
     }
@@ -159,7 +164,7 @@ struct Muxer::Impl {
     t.ctx->sample_rate = kSampleRate;
     t.ctx->sample_fmt = AV_SAMPLE_FMT_FLTP;
     av_channel_layout_default(&t.ctx->ch_layout, kChannels);
-    t.ctx->bit_rate = 160000;
+    t.ctx->bit_rate = (int64_t)std::max(1, p.audioKbps) * 1000;
     t.ctx->time_base = {1, kSampleRate};
     if (fmt->oformat->flags & AVFMT_GLOBALHEADER) t.ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     int r = avcodec_open2(t.ctx, codec, nullptr);
@@ -218,7 +223,7 @@ bool Muxer::open(const EncoderParams& p, std::string& err) {
   auto& d = *d_;
   d.p = p;
   av_log_set_callback(avLogToTelemetry);
-  int r = avformat_alloc_output_context2(&d.fmt, nullptr, nullptr, p.path.c_str());
+  int r = avformat_alloc_output_context2(&d.fmt, nullptr, p.format.empty() ? nullptr : p.format.c_str(), p.path.c_str());
   if (r < 0 || !d.fmt) { err = "cannot create output: " + avErr(r); return false; }
   if (!d.openVideo(err)) return false;
   for (auto& n : p.audioTracks)
@@ -228,7 +233,8 @@ bool Muxer::open(const EncoderParams& p, std::string& err) {
     if (r < 0) { err = "cannot open " + p.path + ": " + avErr(r); return false; }
   }
   AVDictionary* opts = nullptr;
-  if (p.container == "mp4") av_dict_set(&opts, "movflags", "+frag_keyframe+empty_moov+default_base_moof", 0);
+  if (p.container == "mp4")
+    av_dict_set(&opts, "movflags", p.faststart ? "+faststart" : "+frag_keyframe+empty_moov+default_base_moof", 0);
   r = avformat_write_header(d.fmt, &opts);
   av_dict_free(&opts);
   if (r < 0) { err = "write header: " + avErr(r); return false; }

@@ -8,6 +8,7 @@
 #include "control.h"
 #include "crash_handler.h"
 #include "devices.h"
+#include "share_copy.h"
 #include "telemetry.h"
 
 using namespace vv;
@@ -19,6 +20,7 @@ void usage() {
       "vvcli " VV_VERSION "\n"
       "  vvcli list windows|monitors|devices\n"
       "  vvcli record [options]\n"
+      "  vvcli share <file> --target-mb N\n"
       "  vvcli ctl <pipe> '<json request>'\n"
       "record options:\n"
       "  --window-title T | --window-exe E | --pid N | --hwnd N | --foreground | --monitor N | --dxgi N | --synthetic\n"
@@ -66,6 +68,19 @@ int wmain(int argc, wchar_t** argv) {
     return 0;
   }
   if (a[0] == "ctl" && a.size() >= 3) return ctl(a[1], a[2]);
+  if (a[0] == "share" && a.size() >= 2) {
+    std::string src = a[1];
+    int targetMB = 0;
+    for (size_t i = 2; i < a.size(); ++i) {
+      const std::string& k = a[i];
+      if (k == "--target-mb" && i + 1 < a.size()) targetMB = std::stoi(a[++i]);
+      else { std::fprintf(stderr, "unknown option %s\n", k.c_str()); return 1; }
+    }
+    if (targetMB <= 0) { std::fprintf(stderr, "share needs --target-mb N\n"); return 1; }
+    ShareResult sr = makeShareCopy(src, targetMB);
+    std::puts(sr.toJson().dump().c_str());
+    return sr.error.empty() ? 0 : 5;
+  }
   if (a[0] != "record") { usage(); return 1; }
 
   RecordConfig c;

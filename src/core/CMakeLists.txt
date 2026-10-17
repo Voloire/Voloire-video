@@ -1,6 +1,6 @@
 add_library(vv_core STATIC
   common.cpp telemetry.cpp config.cpp devices.cpp sources.cpp wasapi_source.cpp
-  video_wgc.cpp video_dxgi.cpp encoder.cpp recorder.cpp quality.cpp control.cpp app_controller.cpp crash_handler.cpp)
+  video_wgc.cpp video_dxgi.cpp encoder.cpp recorder.cpp quality.cpp share_copy.cpp control.cpp app_controller.cpp crash_handler.cpp)
 
 target_include_directories(vv_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/third_party)
 target_link_libraries(vv_core PUBLIC vv_ffmpeg
