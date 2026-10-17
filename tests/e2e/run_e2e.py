@@ -156,12 +156,22 @@ def sc_quality_presets(out):
         rep.check(f"{preset}: video.bitrate_kbps is {kbps}", m.get("video.bitrate_kbps") == kbps, m.get("video.bitrate_kbps"))
         sizes[preset] = Path(res["path"]).stat().st_size
         check_container(rep, res["path"], "h264", 720, 30, 3, 3.6, 4.5)
-    if len(sizes) == 4:
-        # On a near-static synthetic picture VBR spends content-driven bits far below the
-        # smallest target, so intermediate size order is not stable; only the endpoint
-        # relation high > minimal is asserted (measured stable on mf across runs).
-        rep.check("high encodes a bigger file than minimal",
-                  sizes["high"] > sizes["minimal"], sizes)
+    # On a near-static synthetic picture the encoder spends content-driven bits (~670 kbps on
+    # mf) far below every preset target, so preset-vs-preset sizes differ only by encoder noise
+    # (measured +/-2%): the size responds only when the rate cap binds. High preset against a
+    # 300 kbps custom run pairs the two ends of the same knob.
+    rc, res, err = run_cli(["record", "--synthetic", "--duration", 4, "--fps", 30, "--height", 720,
+                            "--encoder", "mf", "--bitrate", "300", "--out", d / "rate300", "--name", "q"], timeout=90)
+    if rep.check("custom 300 kbps: recorded", rc == 0 and res, f"rc={rc} {err[-160:]}"):
+        rj = Path(res["telemetryDir"]) / "result.json"
+        m = json.loads(rj.read_text(encoding="utf-8")).get("metrics", {})
+        rep.check("custom 300 kbps: video.bitrate_kbps is 300", m.get("video.bitrate_kbps") == 300,
+                  m.get("video.bitrate_kbps"))
+        sizes["custom300"] = Path(res["path"]).stat().st_size
+        check_container(rep, res["path"], "h264", 720, 30, 3, 3.6, 4.5)
+    if "high" in sizes and "custom300" in sizes:
+        rep.check("a binding rate cap shrinks the file (high preset > 300 kbps custom)",
+                  sizes["high"] > sizes["custom300"], sizes)
     rc, res, err = run_cli(["record", "--synthetic", "--duration", 3, "--fps", 30, "--height", 1080, "--encoder", "mf",
                             "--quality", "minimal", "--out", d / "cap", "--name", "cap"], timeout=90)
     if rep.check("minimal at 1080: recorded", rc == 0 and res, f"rc={rc} {err[-160:]}"):
