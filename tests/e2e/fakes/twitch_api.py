@@ -6,6 +6,7 @@ patches (PATCH bodies received), refreshes, requests, channel.
 """
 import json
 import threading
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -115,11 +116,13 @@ class FakeTwitch:
         with self._lock:
             self.stream_id = ""
 
-    def add_vod(self, vod_id, stream_id):
+    def add_vod(self, vod_id, stream_id, age_s=0):
+        """A VOD of this channel, created age_s seconds ago (UTC, as Twitch reports it)."""
+        created = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - age_s))
         with self._lock:
             self.vods.insert(0, {"id": vod_id, "stream_id": stream_id, "user_id": self.user["id"],
                                  "url": f"https://www.twitch.tv/videos/{vod_id}", "type": "archive",
-                                 "created_at": "2026-10-25T10:00:00Z"})
+                                 "created_at": created})
 
     def reject_patch(self, status=409, message="title too long"):
         with self._lock:

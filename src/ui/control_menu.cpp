@@ -223,7 +223,7 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
   {
     auto* grp = new QActionGroup(out);
     grp->addAction(radio(out, "Record to file", c.output == "file", [p] { p->setOutput("file"); }));
-    grp->addAction(radio(out, "Stream to YouTube", c.output == "stream", [p] { p->setOutput("stream"); }));
+    grp->addAction(radio(out, "Stream (live)", c.output == "stream", [p] { p->setOutput("stream"); }));
   }
 
   // YouTube: the key (its fate is the only thing shown), the studio page for the active channel,
@@ -246,7 +246,7 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
     yt->addSeparator();
     ytStudio = yt->addAction("Open YouTube Studio");
     ytStudio->setToolTip(QString("Open YouTube Studio for %1").arg(panel.activeChannelLabel()));
-    QObject::connect(ytStudio, &QAction::triggered, &menu, [p] { p->openYouTubeStudio(); });
+    QObject::connect(ytStudio, &QAction::triggered, &menu, [p] { p->openStudio(); });
     yt->addSeparator();
     QAction* chHdr = yt->addAction("Destination channel:");
     chHdr->setEnabled(false);

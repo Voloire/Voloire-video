@@ -1115,8 +1115,8 @@ def sc_ui_stream(out):
         item = [m["text"] for m in src if "VV TestSubject Stream" in m.get("text", "")][0]
         rep.check("hud menu: Source > test window",
                   c.call(cmd="ui_trigger", path=["Source", item], surface="hud")["ok"])
-        rep.check("hud menu: Output > Stream to YouTube",
-                  c.call(cmd="ui_trigger", path=["Output", "Stream to YouTube"], surface="hud")["ok"])
+        rep.check("hud menu: Output > Stream (live)",
+                  c.call(cmd="ui_trigger", path=["Output", "Stream (live)"], surface="hud")["ok"])
         live = hud_action("Go live")
         rep.check("with no key: Go live is disabled", live is not None and live["enabled"] is False, live)
         yt = hud_submenu("YouTube")
@@ -1326,8 +1326,8 @@ def sc_youtube_links(out):
         src = [m for m in call(cmd="ui_state")["menu"] if m.get("text") == "Source"][0]["menu"]
         item = [m["text"] for m in src if "VV TestSubject Links" in m.get("text", "")][0]
         rep.check("menu: Source > test window", call(cmd="ui_trigger", path=["Source", item], surface="hud")["ok"])
-        rep.check("menu: Output > Stream to YouTube",
-                  call(cmd="ui_trigger", path=["Output", "Stream to YouTube"], surface="hud")["ok"])
+        rep.check("menu: Output > Stream (live)",
+                  call(cmd="ui_trigger", path=["Output", "Stream (live)"], surface="hud")["ok"])
         rep.check("set_stream_key", call(cmd="set_stream_key", key=key).get("ok") is True)
         rep.check("menu: Go live", call(cmd="ui_trigger", path=["Go live"], surface="hud")["ok"])
         rep.check("state becomes recording", wait_for(lambda: call(cmd="ui_state")["state"] == "recording", 20))
@@ -1361,6 +1361,192 @@ def sc_youtube_links(out):
     return rep
 
 
+def sc_twitch_live(out):
+    rep = Report("twitch_live")
+    d = out / "twitch_live"
+    if d.exists():
+        shutil.rmtree(d, ignore_errors=True)
+    d.mkdir(parents=True, exist_ok=True)
+    from fakes.rtmp_ingest import RtmpIngest
+    from fakes.twitch_api import FakeTwitch
+    if not rep.check("ffmpeg build has the rtmp protocol", capabilities()["rtmp"]):
+        return rep
+    fake = FakeTwitch()
+    ing = RtmpIngest(d / "ing1", app="app", key=fake.stream_key)
+    ing.start()
+    ing2 = RtmpIngest(d / "ing2", app="app", key=fake.stream_key)
+    ing2.start()
+    subj = Subject(d, title="VV TestSubject Twitch", hz=440)
+    gui = Gui(d, "vv-e2e-twitch-live", env_extra=fake.env)
+    dumps = []  # every pipe answer, scanned for tokens and the key at the end
+    settings = d / "settings"
+
+    def call(**req):
+        r = gui.c.call(**req)
+        dumps.append(json.dumps(r))
+        return r
+
+    def ui():
+        return call(cmd="ui_state")
+
+    def tw():
+        return ui().get("twitchUi") or {}
+
+    def wait_for(pred, timeout):
+        end = time.time() + timeout
+        while time.time() < end:
+            v = pred()
+            if v:
+                return v
+            time.sleep(0.2)
+        return pred()
+
+    def links():
+        return ui()["links"]
+
+    try:
+        t = tw()
+        rep.check("tab before sign-in: NOT CONNECTED, Connect on, Apply off",
+                  t.get("statusText") == "NOT CONNECTED" and t.get("connectEnabled") is True
+                  and t.get("applyEnabled") is False, t)
+
+        # Sign-in through the panel itself: dialog with the code, browser opened on the verification page.
+        r = call(cmd="ui_twitch_connect", clientId=fake.client_id)
+        rep.check("Connect: started", r.get("ok") is True, r)
+        t = wait_for(lambda: (lambda x: x if "ABCD-1234" in x.get("authDialog", "") else None)(tw()), 5)
+        rep.check("Connect: dialog shows the code, browser opened on the verification page",
+                  bool(t) and t.get("openedUrl") == fake.base + "/activate", t)
+        fake.approve()
+        t = wait_for(lambda: (lambda x: x if x.get("statusText") == "SIGNED IN AS voloire" else None)(tw()), 10)
+        rep.check("after approval the tab reads SIGNED IN AS voloire, Sign out on, Connect off",
+                  bool(t) and t.get("signOutEnabled") is True and t.get("connectEnabled") is False, t)
+        rep.check("the Twitch profile became the active channel",
+                  wait_for(lambda: call(cmd="get_config")["config"]["streamChannel"] == "tw_123456", 5))
+        rep.check("client id field keeps the Client ID", tw().get("clientId") == fake.client_id)
+
+        # The key comes from the account (over the pipe here); the tab shows it as set.
+        rep.check("fetch key", call(cmd="twitch_fetch_key", channel="tw_123456").get("ok") is True)
+        t = wait_for(lambda: (lambda x: x if "SET" in x.get("keyText", "") and "NOT SET" not in x.get("keyText", "") else None)(tw()), 6)
+        rep.check("tab shows the stream key as set", bool(t), tw().get("keyText"))
+
+        r = call(cmd="twitch_search_categories", query="just")
+        rep.check("categories: search by name", r.get("categories") == [{"id": "509658", "name": "Just Chatting"}], r)
+        r = call(cmd="twitch_ingests")
+        rep.check("ingests: urls stripped of the key placeholder",
+                  [i["url"] for i in r.get("ingests", [])] == ["rtmp://live.twitch.tv/app", "rtmp://mil.contribute.live-video.net/app"], r)
+
+        # Broadcast info typed in the tab, applied to Twitch.
+        call(cmd="ui_twitch_set", title="Late session", tags="gaming, chill", language="it",
+             categoryId="509658", categoryName="Just Chatting")
+        t = tw()
+        rep.check("fields hold what was typed",
+                  t.get("title") == "Late session" and t.get("tags") == "gaming, chill" and t.get("language") == "it"
+                  and t.get("category") == "Just Chatting", t)
+        call(cmd="ui_twitch_apply")
+        t = wait_for(lambda: (lambda x: x if x.get("infoStatus", "").startswith(("APPLIED", "NOT APPLIED")) else None)(tw()), 8)
+        rep.check("Apply: the tab says APPLIED TO TWITCH", bool(t) and t.get("infoStatus") == "APPLIED TO TWITCH", t)
+        rep.check("Apply: Twitch received exactly the typed info",
+                  bool(fake.patches) and fake.patches[-1] == {"title": "Late session", "game_id": "509658",
+                                                              "broadcaster_language": "it", "tags": ["gaming", "chill"]},
+                  fake.patches)
+        ui_json = json.loads((settings / "ui.json").read_text(encoding="utf-8"))
+        ch = next((x for x in ui_json["channels"] if x["id"] == "tw_123456"), {})
+        rep.check("Apply: the info is saved in the profile",
+                  ch.get("title") == "Late session" and ch.get("categoryId") == "509658" and ch.get("tags") == ["gaming", "chill"], ch)
+
+        n = len(fake.patches)
+        call(cmd="ui_twitch_set", tags="a,b,c,d,e,f,g,h,i,j,k")
+        call(cmd="ui_twitch_apply")
+        t = wait_for(lambda: (lambda x: x if x.get("infoStatus", "").startswith("NOT APPLIED") else None)(tw()), 8)
+        rep.check("11 tags: refused with the reason, nothing sent to Twitch",
+                  bool(t) and "10 tags" in t.get("infoStatus", "") and len(fake.patches) == n, t)
+        call(cmd="ui_twitch_set", tags="gaming, chill")
+
+        # Output and source, then a go live that Twitch refuses before any connection.
+        call(cmd="ui_override", config={"outDir": str(d / "rec"), "name": "twlive", "mic": "none", "sys": "none",
+                                        "fps": 30, "streamUrl": ing.url, "recordWhileStreaming": True,
+                                        "telemetryDir": str(d / "telemetry")})
+        src = [m for m in ui()["menu"] if m.get("text") == "Source"][0]["menu"]
+        item = [m["text"] for m in src if "VV TestSubject Twitch" in m.get("text", "")][0]
+        rep.check("menu: Source > test window", call(cmd="ui_trigger", path=["Source", item], surface="hud")["ok"])
+        rep.check("menu: Output > Stream (live)",
+                  call(cmd="ui_trigger", path=["Output", "Stream (live)"], surface="hud")["ok"])
+        live = next((m for m in ui()["hud"]["menu"] if m.get("text") == "Go live"), None)
+        rep.check("Go live is enabled with the Twitch key set", live is not None and live["enabled"] is True, live)
+
+        fake.reject_patch(409, "title too long")
+        rep.check("menu: Go live (Twitch will refuse the info)", call(cmd="ui_trigger", path=["Go live"], surface="hud")["ok"])
+        e = wait_for(lambda: (lambda x: x if "title too long" in x.get("error", "") else None)(ui()), 10)
+        rep.check("refused info: error names Twitch and the reason, state stays idle",
+                  bool(e) and "Twitch" in e["error"] and e["state"] == "idle", e and e.get("error"))
+        time.sleep(1.0)
+        rep.check("refused info: the ingest never saw a connection", not ing.received.exists())
+
+        # The real go live: the info is applied first, then the stream starts.
+        rep.check("menu: Go live", call(cmd="ui_trigger", path=["Go live"], surface="hud")["ok"])
+        rep.check("state becomes recording", wait_for(lambda: ui()["state"] == "recording", 20))
+        h = ui()["hud"]
+        rep.check("hud: LIVE", h.get("label") == "LIVE", h.get("label"))
+        rep.check("ingest: connection received", ing.wait_connected(20))
+        rep.check("info applied again on go live", fake.patches[-1].get("title") == "Late session", fake.patches[-1])
+        lk = links()
+        rep.check("live link is the channel page at once",
+                  lk["platform"] == "twitch" and lk["liveUrl"] == "https://www.twitch.tv/voloire" and lk["state"] == "watching", lk)
+        t = wait_for(lambda: (lambda x: x if x.get("liveLink") == "https://www.twitch.tv/voloire" else None)(tw()), 5)
+        rep.check("tab shows the live link", bool(t), tw().get("liveLink"))
+
+        fake.set_live("999")
+        fake.add_vod("41234567", "999", age_s=600)  # matched by stream id; old enough not to match the next session by date
+        lk = wait_for(lambda: (lambda x: x if x["state"] == "found" else None)(links()), 10)
+        rep.check("VOD link resolved as soon as Twitch lists it",
+                  bool(lk) and lk["vodUrl"] == "https://www.twitch.tv/videos/41234567", lk)
+        t = wait_for(lambda: (lambda x: x if x.get("vodLink") == "https://www.twitch.tv/videos/41234567" else None)(tw()), 5)
+        rep.check("tab shows the VOD link", bool(t), tw().get("vodLink"))
+
+        call(cmd="ui_tab", index=2)
+        shots = call(cmd="ui_screenshot", dir=str(d / "shots"))
+        pngs = {Path(f["file"]).name: f for f in shots.get("files", [])}
+        rep.check("screenshot of the Twitch tab is a real image",
+                  "panel_twitch.png" in pngs and pngs["panel_twitch.png"]["ok"] and pngs["panel_twitch.png"]["w"] > 300, pngs.get("panel_twitch.png"))
+
+        rep.check("menu: End stream", call(cmd="ui_trigger", path=["End stream"], surface="hud")["ok"])
+        rep.check("back to idle", wait_for(lambda: ui()["state"] == "idle", 20))
+        rep.check("after the stream: ended, the VOD link is kept",
+                  links()["state"] == "ended" and links()["vodUrl"] == "https://www.twitch.tv/videos/41234567", links())
+        ing.stop()
+        local = sorted((d / "rec").glob("twlive_*.mkv"))
+        rep.check("local copy written beside the stream", len(local) == 1 and local[0].stat().st_size > 0, local)
+        if local:
+            ok, why = decodes_clean(local[0])
+            rep.check("local copy decodes clean", ok, why)
+        if ing.received.exists():
+            ok, why = decodes_clean(ing.received)
+            rep.check("ingest: decodes clean", ok, why)
+
+        # A session whose VOD never appears: End stream is quick and the tracker gives up.
+        fake.set_offline()
+        call(cmd="ui_override", config={"outDir": str(d / "rec"), "name": "twlive2", "mic": "none", "sys": "none",
+                                        "fps": 30, "streamUrl": ing2.url, "recordWhileStreaming": False,
+                                        "telemetryDir": str(d / "telemetry2")})
+        rep.check("menu: Go live (second session)", call(cmd="ui_trigger", path=["Go live"], surface="hud")["ok"])
+        rep.check("second session recording", wait_for(lambda: ui()["state"] == "recording", 20))
+        t0 = time.time()
+        rep.check("menu: End stream (second session)", call(cmd="ui_trigger", path=["End stream"], surface="hud")["ok"])
+        rep.check("second session back to idle in under 5 s", wait_for(lambda: ui()["state"] == "idle", 5) and time.time() - t0 < 5)
+        lk = wait_for(lambda: (lambda x: x if x["state"] == "ended" else None)(links()), 10)
+        rep.check("no VOD ever: the tracker ends by itself", bool(lk) and lk["vodUrl"] == "", lk)
+
+        hits = scan_for_secrets([settings, d / "telemetry", d / "telemetry2", *dumps], [*fake.all_tokens, fake.stream_key])
+        rep.check("no token and no stream key in the settings, the telemetry or any pipe answer", not hits, hits)
+    finally:
+        gui.close()
+        subj.stop()
+        ing.stop()
+        ing2.stop()
+        fake.stop()
+    return rep
+
+
 def sc_installers(out):
     import sc_installers
     return sc_installers.run(out)
@@ -1390,6 +1576,7 @@ SCENARIOS = {
     "ui_stream": sc_ui_stream,
     "twitch_auth": sc_twitch_auth,
     "youtube_links": sc_youtube_links,
+    "twitch_live": sc_twitch_live,
     "soak": sc_longer_soak,
     "installers": sc_installers,
 }

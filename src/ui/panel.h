@@ -1,10 +1,16 @@
 #pragma once
+#include <QPointer>
 #include <QWidget>
+#include <functional>
 #include <thread>
 #include "app_controller.h"
 #include "devices.h"
 
 class QCheckBox;
+class QFrame;
+class QGridLayout;
+class QMessageBox;
+class QUrl;
 class QComboBox;
 class QLabel;
 class QLineEdit;
@@ -18,6 +24,9 @@ class QTimer;
 namespace vv::ui {
 
 class LevelMeter;
+
+// A titled card of the panel (shared by the tab builders).
+QFrame* makeCard(const QString& title, QLayout* inner, QWidget* parent);
 
 // The configuration panel. It is also the model the tray menu edits: every setting lives in
 // one of its controls, and RecordConfig is derived from them on demand.
@@ -61,7 +70,33 @@ class MainPanel : public QWidget {
   void selectChannel(const QString& id);
   void promptAddChannel();
   void deleteActiveChannel();
-  void openYouTubeStudio();
+  void openStudio();  // YouTube Studio or the Twitch stream manager, by the active channel's platform
+  QString activeChannelPlatform() const;  // youtube | twitch
+  bool setStreamKeyFor(const QString& channelId, const std::string& key);
+
+  // Twitch (panel_twitch.cpp)
+  vv::json twitchStatus();                       // twitch_status: sign-in state and profile, never a token
+  void twitchConnect();                          // browser sign-in: code dialog, verification page, poll until done
+  void twitchSignOut();
+  void twitchFetchKey();                         // the stream key of the account, stored encrypted
+  void twitchApplyInfo(std::function<void(bool)> done = nullptr);  // title, category, tags, language -> Twitch
+  void twitchPromptTitle();
+  void twitchPromptCategory();
+  void openVideoProducer();
+  void onPrefsReloaded();                        // ui.json was rewritten by the controller
+  vv::json twitchUiState() const;                // what the Twitch tab shows, for the tests
+  void uiTwitchConnect(const QString& clientId);
+  void uiTwitchSet(const vv::json& fields);
+
+  // Share links of the current stream and the Share link menu entries
+  vv::json shareLinks() const;                   // links: platform, liveUrl, vodUrl, state, error
+  QString liveLink() const;                      // of the active channel: the tracker's, else computed from its profile
+  QString vodLink() const;
+  void copyLiveLink();
+  void copyVodLink();
+  void openLiveLink();
+  void openVodLink();
+  static void openExternal(const QUrl& u);       // QDesktopServices::openUrl unless VV_NO_BROWSER is set
 
   // Audio mix & mute
   bool sysMuted() const;
@@ -113,6 +148,25 @@ class MainPanel : public QWidget {
   void useActiveNow();
   void showError(const QString& m);
   void startShare(const QString& path, int mb);
+  void buildTwitchTab();
+  struct ShareWidgets {
+    QLabel *live = nullptr, *vod = nullptr;
+    QPushButton *copyLive = nullptr, *openLive = nullptr, *copyVod = nullptr, *openVod = nullptr;
+  };
+  QGridLayout* buildShareGrid(ShareWidgets& w, const QString& platform);
+  QString liveLinkFor(const QString& platform) const;
+  QString vodLinkFor(const QString& platform) const;
+  void refreshShareLinks();
+  void copyText(const QString& t);
+  void syncTwitchUi();
+  void applyTwitchEnabled(bool canEdit);
+  void loadTwitchFields();
+  void saveTwitchFields();
+  void setTwitchIngest(const QString& url);
+  const vv::StreamChannel* twitchProfile() const;
+  vv::StreamChannel* twitchProfile();
+  QString twitchChannelId() const;
+  void runAsync(std::function<vv::json()> work, std::function<void(const vv::json&)> done);
   void syncKeyUi();
   void refreshChannelCombos();
   void applyAudioMix();
@@ -157,6 +211,23 @@ class MainPanel : public QWidget {
   QLabel *sysVolLabel_ = nullptr, *micVolLabel_ = nullptr, *ytSysVolLabel_ = nullptr, *ytMicVolLabel_ = nullptr;
   QLabel *keyStateLabel_ = nullptr, *ytKeyStateLabel_ = nullptr;
   QWidget* streamCard_;  // the Stream group in the Recording tab (always visible)
+
+  // TWITCH STREAM tab
+  QLineEdit *twClientIdEdit_ = nullptr, *twUrlEdit_ = nullptr, *twKeyEdit_ = nullptr, *twTitleEdit_ = nullptr,
+            *twCategoryEdit_ = nullptr, *twTagsEdit_ = nullptr;
+  QPushButton *twConnectBtn_ = nullptr, *twSignOutBtn_ = nullptr, *twIngestRefreshBtn_ = nullptr, *twFetchKeyBtn_ = nullptr,
+              *twKeySave_ = nullptr, *twKeyClear_ = nullptr, *twDashboardBtn_ = nullptr, *twCategorySearchBtn_ = nullptr,
+              *twLoadInfoBtn_ = nullptr, *twApplyBtn_ = nullptr, *twGoLiveBtn_ = nullptr, *twVideoProducerBtn_ = nullptr,
+              *twOpenFolderBtn_ = nullptr;
+  QComboBox *twIngestCombo_ = nullptr, *twCategoryCombo_ = nullptr, *twLangCombo_ = nullptr;
+  QLabel *twStatusLabel_ = nullptr, *twKeyStateLabel_ = nullptr, *twTitleCount_ = nullptr, *twInfoStatusLabel_ = nullptr;
+  QCheckBox *twApplyOnLiveCheck_ = nullptr, *twLocalCopyCheck_ = nullptr;
+  ShareWidgets twShare_;
+  QTimer* twAuthTimer_ = nullptr;
+  QPointer<QMessageBox> twAuthBox_;
+  bool twSigned_ = false, twHasProfile_ = false;
+  QString twLoadedId_;
+  qint64 lastTwSyncMs_ = 0, lastLinksMs_ = 0;
   LevelMeter *sysMeter_, *micMeter_, *ytSysMeter_ = nullptr, *ytMicMeter_ = nullptr;
   QLabel *timerLabel_, *stateLabel_, *infoLabel_, *errLabel_;
   QPushButton *recBtn_, *pauseBtn_;
