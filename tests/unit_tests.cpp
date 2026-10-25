@@ -10,6 +10,7 @@
 #include "app_controller.h"
 #include "control.h"
 #include "devices.h"
+#include "http_client.h"
 #include "quality.h"
 #include "recorder.h"
 #include "redact.h"
@@ -251,6 +252,28 @@ TEST_CASE("stream channels carry a platform and the Twitch broadcast info") {
   CHECK(StreamChannel::fromJson({{"id", "x"}}).applyInfoOnGoLive == true);
   UiPrefs p; p.twitchClientId = "abc123";
   CHECK(UiPrefs::fromJson(p.toJson()).twitchClientId == "abc123");
+}
+
+TEST_CASE("urlEncode keeps unreserved characters and escapes the rest") {
+  CHECK(urlEncode("just chatting") == "just%20chatting");
+  CHECK(urlEncode("a-b_c.d~e") == "a-b_c.d~e");
+  CHECK(urlEncode("tag:ok/" "é") == "tag%3Aok%2F%C3%A9");
+}
+
+TEST_CASE("httpRequest reports a transport error without throwing") {
+  HttpResponse r = httpRequest("GET", "http://127.0.0.1:9/nothing", {}, {}, 2000);  // port 9: nothing listens
+  CHECK_FALSE(r.ok());
+  CHECK_FALSE(r.error.empty());
+  CHECK(r.status == 0);
+  HttpResponse bad = httpRequest("GET", "not a url");
+  CHECK_FALSE(bad.error.empty());
+}
+
+TEST_CASE("envOr falls back when the variable is unset or empty") {
+  _wputenv(L"VV_TEST_ENVOR=");
+  CHECK(envOr(L"VV_TEST_ENVOR", "fb") == "fb");
+  _wputenv(L"VV_TEST_ENVOR=val");
+  CHECK(envOr(L"VV_TEST_ENVOR", "fb") == "val");
 }
 
 TEST_CASE("planShare fits the target") {
