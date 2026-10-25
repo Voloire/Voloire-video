@@ -42,6 +42,10 @@ jobs:
         shell: pwsh
         run: python tests\functional_tests.py
 
+      - name: Functional destination UI (offscreen, no audio/video or devices)
+        shell: pwsh
+        run: build\bin\vv_ui_functional_tests.exe
+
       - name: Full unit suite (optional media validation)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.media_tests }}
         shell: pwsh

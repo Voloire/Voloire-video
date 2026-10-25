@@ -35,14 +35,14 @@ QString TrayController::tooltip() const {
   if (panel_->recState() == vv::RecState::Recording && c.output == "stream") {
     vv::json st = panel_->streamStatus();
     QString label = st.value("state", std::string("live")) == "reconnecting" ? "RECONN" : "LIVE";
-    return QString("Voloire-video | %1 %2 | %3 Mbps")
-        .arg(label, panel_->timerText())
+    return QString("Voloire-video | %1 | %2 %3 | %4 Mbps")
+        .arg(panel_->destination().caption(), label, panel_->timerText())
         .arg(st.value("kbps", 0.0) / 1000.0, 0, 'f', 1);
   }
   QString state = QString(vv::stateName(panel_->recState())).toUpper();
   if (panel_->recState() == vv::RecState::Idle && panel_->starting()) state = "STARTING";
   QString res = c.outHeight ? QString("%1p").arg(c.outHeight) : QString("source size");
-  QString t = QString("Voloire-video | %1 %2 | %3 %4 fps %5 | SYS %6 | MIC %7")
+  QString t = panel_->destination().caption() + " | " + QString("Voloire-video | %1 %2 | %3 %4 fps %5 | SYS %6 | MIC %7")
                   .arg(state, panel_->timerText(), res)
                   .arg(c.fps)
                   .arg(QString::fromStdString(c.codec))
@@ -141,6 +141,7 @@ vv::json TrayController::state() {
           {"twitch", panel_->twitchStatus()},
           {"twitchUi", panel_->twitchUiState()},
           {"youtubeUi", panel_->youtubeUiState()},
+          {"destination", panel_->destinationState()},
           {"menu", dumpMenu(&menu_)}};
 }
 

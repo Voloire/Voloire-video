@@ -90,8 +90,11 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
   MainPanel* p = &panel;
   const bool stream = panel.outputKind() == "stream";
 
-  QAction* startStop = menu.addAction(st == RS::Idle ? (stream ? "Go live" : "Start recording")
-                                                     : (stream ? "End stream" : "Stop recording"));
+  auto* destinationInfo = menu.addAction(destinationIcon(panel.destination().platform),
+                                         "Destination: " + panel.destination().caption());
+  destinationInfo->setEnabled(false);
+  QAction* startStop = menu.addAction(destinationIcon(panel.destination().platform),
+                                      panel.destination().actionText(st != RS::Idle, true));
   // Going live needs a stored key: without one the entry stays disabled.
   startStop->setEnabled(!panel.starting() && (st != RS::Idle || !stream || panel.streamKeySet()));
   QObject::connect(startStop, &QAction::triggered, &menu, [p] {
@@ -408,12 +411,15 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
     });
   });
 
-  auto* stayFilter = new MenuStayOpenFilter(&menu, [p, startStop, pause, ytInfo, ytClear, ytStudio, muteMic, muteSys, shInfo, shCopyLive, shCopyVod, shOpenLive, shOpenVod, twKeyInfo] {
+  auto* stayFilter = new MenuStayOpenFilter(&menu, [p, startStop, destinationInfo, pause, ytInfo, ytClear, ytStudio, muteMic, muteSys, shInfo, shCopyLive, shCopyVod, shOpenLive, shOpenVod, twKeyInfo] {
     const RS s = p->recState();
     const bool isStream = p->outputKind() == "stream";
     const bool keyOk = p->streamKeySet();
-    startStop->setText(s == RS::Idle ? (isStream ? "Go live" : "Start recording")
-                                     : (isStream ? "End stream" : "Stop recording"));
+    const auto dest = p->destination();
+    startStop->setText(dest.actionText(s != RS::Idle, true));
+    startStop->setIcon(destinationIcon(dest.platform));
+    destinationInfo->setText("Destination: " + dest.caption());
+    destinationInfo->setIcon(destinationIcon(dest.platform));
     startStop->setEnabled(!p->starting() && (s != RS::Idle || !isStream || keyOk));
     pause->setEnabled((s == RS::Recording || s == RS::Paused) && !isStream);
     if (ytInfo) ytInfo->setText(keyOk ? "Stream key: set" : "Stream key: not set");

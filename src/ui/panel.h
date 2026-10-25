@@ -6,6 +6,7 @@
 #include <thread>
 #include "app_controller.h"
 #include "devices.h"
+#include "destination.h"
 
 class QCheckBox;
 class QFrame;
@@ -34,7 +35,7 @@ QFrame* makeCard(const QString& title, QLayout* inner, QWidget* parent);
 class MainPanel : public QWidget {
   Q_OBJECT
  public:
-  explicit MainPanel(vv::AppController& app, QWidget* parent = nullptr);
+  explicit MainPanel(vv::AppController& app, QWidget* parent = nullptr, bool functionalOnly = false);
   ~MainPanel() override;
 
   vv::RecordConfig currentConfig() const;
@@ -56,6 +57,8 @@ class MainPanel : public QWidget {
   void setSys(const QString& mode, const QString& id = {});   // app | system | none
   void setOutput(const QString& v);   // file | stream
   QString outputKind() const;
+  Destination destination() const;
+  vv::json destinationState() const;
 
   // Streaming: the key is held by the controller (DPAPI, never in ui.json).
   bool streamKeySet();
@@ -174,6 +177,7 @@ class MainPanel : public QWidget {
   void runAsync(std::function<vv::json()> work, std::function<void(const vv::json&)> done);
   void syncKeyUi();
   void refreshChannelCombos();
+  void refreshDestination();
   void applyAudioMix();
   void stopIdleAudio();
   void pollIdleAudio();
@@ -190,6 +194,8 @@ class MainPanel : public QWidget {
   vv::UiPrefs* prefs_ = nullptr;  // owned by main: tray and status bar read the same ui.json
   bool starting_ = false;
   bool loading_ = false;
+  bool functionalOnly_ = false;  // headless UI tests cannot enumerate devices or start capture
+  bool hasStreamKey_ = false;
   std::thread startTh_;
 
   std::unique_ptr<vv::IAudioSource> idleSys_, idleMic_;
@@ -201,6 +207,7 @@ class MainPanel : public QWidget {
   QComboBox *winCombo_, *monCombo_, *sysCombo_, *micCombo_, *containerCombo_, *codecCombo_, *encoderCombo_, *resCombo_,
       *fpsCombo_, *qualityCombo_, *shareCombo_, *outputCombo_;
   QComboBox *channelCombo_ = nullptr, *ytChannelCombo_ = nullptr;
+  QComboBox* destinationCombo_ = nullptr;
   QComboBox *ytOutputCombo_ = nullptr, *streamServerCombo_ = nullptr, *streamPresetCombo_ = nullptr,
             *streamResCombo_ = nullptr, *ytFpsCombo_ = nullptr, *ytEncoderCombo_ = nullptr,
             *ytSysCombo_ = nullptr, *ytMicCombo_ = nullptr;

@@ -1131,7 +1131,7 @@ def sc_ui_stream(out):
                   c.call(cmd="ui_trigger", path=["Source", item], surface="hud")["ok"])
         rep.check("hud menu: Output > Stream (live)",
                   c.call(cmd="ui_trigger", path=["Output", "Stream (live)"], surface="hud")["ok"])
-        live = hud_action("Go live")
+        live = hud_action("Go live on YouTube")
         rep.check("with no key: Go live is disabled", live is not None and live["enabled"] is False, live)
         yt = hud_submenu("YouTube")
         rep.check("YouTube info line: Stream key: not set",
@@ -1140,14 +1140,14 @@ def sc_ui_stream(out):
         # The key comes from YouTube Studio; here it arrives over the pipe (dialogs are not drivable).
         r = c.call(cmd="set_stream_key", key=key)
         rep.check("set_stream_key over the pipe", r.get("ok") is True and r.get("streamKeySet") is True, r)
-        live = hud_action("Go live")
+        live = hud_action("Go live on YouTube")
         rep.check("with a key: Go live is enabled", live is not None and live["enabled"] is True, live)
         yt = hud_submenu("YouTube")
         rep.check("YouTube info line: Stream key: set",
                   bool(yt) and yt[0]["text"] == "Stream key: set", yt[0]["text"] if yt else yt)
 
         # Go live from the bar, run for 5 s, end it from the bar.
-        rep.check("hud menu: Go live", c.call(cmd="ui_trigger", path=["Go live"], surface="hud")["ok"])
+        rep.check("hud menu: Go live", c.call(cmd="ui_trigger", path=["Go live on YouTube"], surface="hud")["ok"])
         end = time.time() + 20
         while time.time() < end:
             h = hud_state()
@@ -1160,13 +1160,13 @@ def sc_ui_stream(out):
         rep.check("hud: the rate is on the bar", (h.get("kbps") or "").endswith("M"), h.get("kbps"))
         rep.check("Pause is disabled in stream mode", (hud_action("Pause") or {}).get("enabled") is False)
         rep.check("Output is locked while live", (hud_action("Output") or {}).get("enabled") is False)
-        rep.check("the first action is End stream", hud_action("End stream") is not None)
+        rep.check("the first action is End stream", hud_action("End YouTube stream") is not None)
         s = ui_state()
         rep.check("tooltip: LIVE with the rate",
                   s["tooltip"].startswith("Voloire-video | LIVE ") and "Mbps" in s["tooltip"], s["tooltip"])
         rep.check("ingest: connection received", ing.wait_connected(20))
         time.sleep(5)
-        rep.check("hud menu: End stream", c.call(cmd="ui_trigger", path=["End stream"], surface="hud")["ok"])
+        rep.check("hud menu: End stream", c.call(cmd="ui_trigger", path=["End YouTube stream"], surface="hud")["ok"])
         end = time.time() + 20
         while time.time() < end:
             h = hud_state()
@@ -1343,7 +1343,7 @@ def sc_youtube_links(out):
         rep.check("menu: Output > Stream (live)",
                   call(cmd="ui_trigger", path=["Output", "Stream (live)"], surface="hud")["ok"])
         rep.check("set_stream_key", call(cmd="set_stream_key", key=key).get("ok") is True)
-        rep.check("menu: Go live", call(cmd="ui_trigger", path=["Go live"], surface="hud")["ok"])
+        rep.check("menu: Go live", call(cmd="ui_trigger", path=["Go live on YouTube"], surface="hud")["ok"])
         rep.check("state becomes recording", wait_for(lambda: call(cmd="ui_state")["state"] == "recording", 20))
 
         lk = call(cmd="links")["links"]
@@ -1380,7 +1380,7 @@ def sc_youtube_links(out):
                   "panel_stream.png" in pngs and pngs["panel_stream.png"]["ok"] and pngs["panel_stream.png"]["w"] > 300,
                   pngs.get("panel_stream.png"))
 
-        rep.check("menu: End stream", call(cmd="ui_trigger", path=["End stream"], surface="hud")["ok"])
+        rep.check("menu: End stream", call(cmd="ui_trigger", path=["End YouTube stream"], surface="hud")["ok"])
         rep.check("back to idle", wait_for(lambda: call(cmd="ui_state")["state"] == "idle", 20))
         lk = call(cmd="links")["links"]
         rep.check("after the stream: ended, the link is kept",
@@ -1407,7 +1407,7 @@ def sc_youtube_links(out):
         call(cmd="ui_trigger", path=["Source", item], surface="hud")
         call(cmd="ui_trigger", path=["Output", "Stream (live)"], surface="hud")
         call(cmd="set_stream_key", key=key)
-        rep.check("no channel id: Go live works", call(cmd="ui_trigger", path=["Go live"], surface="hud")["ok"])
+        rep.check("no channel id: Go live works", call(cmd="ui_trigger", path=["Go live on YouTube"], surface="hud")["ok"])
         rep.check("no channel id: recording", wait_for(lambda: call(cmd="ui_state")["state"] == "recording", 20))
         lk = call(cmd="links")["links"]
         rep.check("no channel id: nothing to poll, the hint says what to set",
@@ -1418,7 +1418,7 @@ def sc_youtube_links(out):
                   [(m.get("text"), m.get("enabled")) for m in sh])
         yui = wait_for(lambda: (lambda x: x if "channel ID" in x["liveLink"] else None)(call(cmd="ui_state")["youtubeUi"]), 5)
         rep.check("no channel id: the YouTube tab shows the hint", bool(yui), call(cmd="ui_state")["youtubeUi"])
-        rep.check("no channel id: End stream", call(cmd="ui_trigger", path=["End stream"], surface="hud")["ok"])
+        rep.check("no channel id: End stream", call(cmd="ui_trigger", path=["End YouTube stream"], surface="hud")["ok"])
         rep.check("no channel id: back to idle", wait_for(lambda: call(cmd="ui_state")["state"] == "idle", 20))
         ing2.stop()
     finally:
@@ -1566,11 +1566,11 @@ def sc_twitch_live(out):
         rep.check("menu: Source > test window", call(cmd="ui_trigger", path=["Source", item], surface="hud")["ok"])
         rep.check("menu: Output > Stream (live)",
                   call(cmd="ui_trigger", path=["Output", "Stream (live)"], surface="hud")["ok"])
-        live = next((m for m in ui()["hud"]["menu"] if m.get("text") == "Go live"), None)
+        live = next((m for m in ui()["hud"]["menu"] if m.get("text") == "Go live on Twitch"), None)
         rep.check("Go live is enabled with the Twitch key set", live is not None and live["enabled"] is True, live)
 
         fake.reject_patch(409, "title too long")
-        rep.check("menu: Go live (Twitch will refuse the info)", call(cmd="ui_trigger", path=["Go live"], surface="hud")["ok"])
+        rep.check("menu: Go live (Twitch will refuse the info)", call(cmd="ui_trigger", path=["Go live on Twitch"], surface="hud")["ok"])
         e = wait_for(lambda: (lambda x: x if "title too long" in x.get("error", "") else None)(ui()), 10)
         rep.check("refused info: error names Twitch and the reason, state stays idle",
                   bool(e) and "Twitch" in e["error"] and e["state"] == "idle", e and e.get("error"))
@@ -1578,7 +1578,7 @@ def sc_twitch_live(out):
         rep.check("refused info: the ingest never saw a connection", not ing.received.exists())
 
         # The real go live: the info is applied first, then the stream starts.
-        rep.check("menu: Go live", call(cmd="ui_trigger", path=["Go live"], surface="hud")["ok"])
+        rep.check("menu: Go live", call(cmd="ui_trigger", path=["Go live on Twitch"], surface="hud")["ok"])
         rep.check("state becomes recording", wait_for(lambda: ui()["state"] == "recording", 20))
         h = ui()["hud"]
         rep.check("hud: LIVE", h.get("label") == "LIVE", h.get("label"))
@@ -1621,7 +1621,7 @@ def sc_twitch_live(out):
         rep.check("screenshot of the Twitch tab is a real image",
                   "panel_twitch.png" in pngs and pngs["panel_twitch.png"]["ok"] and pngs["panel_twitch.png"]["w"] > 300, pngs.get("panel_twitch.png"))
 
-        rep.check("menu: End stream", call(cmd="ui_trigger", path=["End stream"], surface="hud")["ok"])
+        rep.check("menu: End stream", call(cmd="ui_trigger", path=["End Twitch stream"], surface="hud")["ok"])
         rep.check("back to idle", wait_for(lambda: ui()["state"] == "idle", 20))
         rep.check("after the stream: ended, the VOD link is kept",
                   links()["state"] == "ended" and links()["vodUrl"] == "https://www.twitch.tv/videos/41234567", links())
@@ -1640,10 +1640,10 @@ def sc_twitch_live(out):
         call(cmd="ui_override", config={"outDir": str(d / "rec"), "name": "twlive2", "mic": "none", "sys": "none",
                                         "fps": 30, "streamUrl": ing2.url, "recordWhileStreaming": False,
                                         "telemetryDir": str(d / "telemetry2")})
-        rep.check("menu: Go live (second session)", call(cmd="ui_trigger", path=["Go live"], surface="hud")["ok"])
+        rep.check("menu: Go live (second session)", call(cmd="ui_trigger", path=["Go live on Twitch"], surface="hud")["ok"])
         rep.check("second session recording", wait_for(lambda: ui()["state"] == "recording", 20))
         t0 = time.time()
-        rep.check("menu: End stream (second session)", call(cmd="ui_trigger", path=["End stream"], surface="hud")["ok"])
+        rep.check("menu: End stream (second session)", call(cmd="ui_trigger", path=["End Twitch stream"], surface="hud")["ok"])
         rep.check("second session back to idle in under 5 s", wait_for(lambda: ui()["state"] == "idle", 5) and time.time() - t0 < 5)
         lk = wait_for(lambda: (lambda x: x if x["state"] == "ended" else None)(links()), 10)
         rep.check("no VOD ever: the tracker ends by itself", bool(lk) and lk["vodUrl"] == "", lk)

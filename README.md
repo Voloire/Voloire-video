@@ -12,6 +12,7 @@ Windows recorder for one window or application, with the application's own audio
 - **Pause and resume** without a hole in the file: the pause is cut out of the timeline.
 - **Tray icon**: ring and dot that pulse while recording and show a pause glyph when paused; tooltip and menu header carry the state and timer. Start, stop, pause, window, format, MIC and SYS devices are all in its menu.
 - **Status bar (HUD)**: an always-on-top pill with dot, state label and timer, dragged where you like (it remembers); right click gives the same shared menu as the tray. It is excluded from screen captures, and while streaming it shows `LIVE` with the current Mb/s, or `RECONN` with an amber dot while the ingest is down.
+- **Visible destination**: the selector above the tabs chooses `LOCAL RECORDING`, `YOUTUBE / <channel>` or `TWITCH / <login>`. The app, status bar and control menus show the service name and its social icon. The start/stop buttons name the service explicitly; opening a tab alone never changes the destination. Destination controls are locked during a stream.
 - **Quality presets**: High, Standard, Light and Minimal resolve the bitrate from the output height; a hand-typed bitrate switches to Custom.
 - **Share copy**: a compact H.264 MP4 copy of a finished recording, capped at a chosen size (10/25/50/100 MB), written beside the source as `<name>_share_<MB>MB.mp4`. The tray can run it after every recording and put the result on the clipboard, so one Ctrl+V pastes the file.
 - **Streaming (RTMP)**: go live to YouTube or Twitch from the tray, the bar or the CLI. The stream key is stored encrypted with DPAPI and never appears in the config, the logs or the telemetry; a dropped ingest reconnects (1/2/4/8/16 s) keeping the timeline, a stalled one never hangs the recorder, and an unreachable one fails in seconds. Twitch signs in through the browser (device code, like OBS): the key comes from the account, title, category, tags and language are set from the app before going live, and the live link and the video link are on the `Share link` menu as soon as they exist, for YouTube as well.
@@ -37,13 +38,17 @@ Download one of the installers from the latest release (both install per user, n
 
 Silent: `voloire-video-setup-<version>.exe /VERYSILENT` or `msiexec /i voloire-video-<version>.msi /qn`.
 
+To start in the tray at Windows sign-in, select the EXE installer's autostart task or pass
+`AUTOSTART=1` to the MSI installer. The per-user Run entry starts the app with `--minimized`,
+preserves the choice on upgrades and is removed on uninstall. Autostart never starts a recording or stream.
+
 ## Use
 
 Start Voloire-video, pick the window (or leave "active window at record time"), check the two audio channels, press REC. The panel hides to the tray with the close button; the tray icon menu does everything the panel does, and so does the status bar's. Autostart with `--minimized` keeps it tray only.
 
 Headless: `vvcli record --window-title "My Game" --sys app --mic default --duration 60 --out D:\clips`. `vvcli list windows|monitors|devices` shows what can be selected.
 
-To go live on YouTube: in YouTube Studio open *Go live* (the manual stream key, not a scheduled event), write the title there and copy the stream key. Then in the tray or on the bar: `YouTube > Set stream key...`, paste it (it is stored encrypted in the settings folder), pick `Output > Stream to YouTube`, and `Go live`. While live `Pause` is off and `Output` is locked; `End stream` stops. Headless it is `vvcli record --stream rtmp://a.rtmp.youtube.com/live2 --stream-bitrate 6000 --stream-key KEY` (a stream writes no file; without `--stream-key` the stored key is used).
+To go live on YouTube: in YouTube Studio open *Go live* (the manual stream key, not a scheduled event), write the title there and copy the stream key. Save the key in the app, select `YOUTUBE / <channel>` in the always-visible destination selector, then press `GO LIVE ON YOUTUBE`. The tray and bar menus offer `Go live on YouTube`. While live `Pause` is off and the destination is locked; `End YouTube stream` stops. Headless it is `vvcli record --stream rtmp://a.rtmp.youtube.com/live2 --stream-bitrate 6000 --stream-key KEY` (a stream writes no file; without `--stream-key` the stored key is used).
 
 To go live on Twitch: register a Public app once at https://dev.twitch.tv/console/apps (category Application Integration) and paste its Client ID in the Twitch tab. `CONNECT` opens the browser: confirm the code. Then `FETCH KEY FROM TWITCH`, fill title, category, tags and language, and `GO LIVE` (or `APPLY & GO LIVE`). The info is applied to the channel first and a refusal stops the go-live before any connection. The live link (`twitch.tv/<login>`) is on the `Share link` menu and in the tab at once, the `twitch.tv/videos/...` link as soon as Twitch lists it (turn on *Store past broadcasts* in the channel stream settings). Twitch has no download API: `DOWNLOAD VOD` opens the Video Producer page, and `Save local .mkv copy while live` gives the file to upload to YouTube. For YouTube the live link needs the channel ID (`UC...`) in the YouTube tab; the `youtu.be` link appears when YouTube publishes the broadcast page.
 
@@ -67,12 +72,15 @@ For functional validation without touching the desktop, audio/video devices or a
 scripts\build.ps1
 build\bin\vv_unit_tests.exe '--test-suite=functional'
 python tests\functional_tests.py
+build\bin\vv_ui_functional_tests.exe
 ```
 
 The functional suite uses local fake APIs and isolated temporary settings to exercise Twitch sign-in,
 encrypted key storage, token refresh and sign-out, broadcast changes and rejection, category/ingest
 lookup, and Twitch/YouTube link resolution, including VODs published after a stream ends. Its test-only
 driver rejects capture, encoding and device commands. CI runs these functional checks by default.
+The offscreen UI checks also verify destination selection, real routing configuration, icons,
+tab changes and the HUD in both themes. Their panel cannot enumerate devices or start capture.
 The existing audio/video and installer suites remain available through a manual CI run with
 `media_tests` enabled; the commands below run media tests and are separate from functional validation.
 
