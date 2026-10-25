@@ -130,15 +130,39 @@ std::string uiPrefsPath() { return strOf(pathOf(settingsPath()).parent_path() / 
 }  // namespace
 
 json StreamChannel::toJson() const {
-  return {{"id", id}, {"label", label}, {"studioUrl", studioUrl}, {"streamUrl", streamUrl}};
+  return {{"id", id},
+          {"label", label},
+          {"platform", platform},
+          {"studioUrl", studioUrl},
+          {"streamUrl", streamUrl},
+          {"twitchLogin", twitchLogin},
+          {"twitchUserId", twitchUserId},
+          {"twitchDisplayName", twitchDisplayName},
+          {"title", title},
+          {"categoryId", categoryId},
+          {"categoryName", categoryName},
+          {"language", language},
+          {"tags", tags},
+          {"applyInfoOnGoLive", applyInfoOnGoLive}};
 }
 
 StreamChannel StreamChannel::fromJson(const json& j) {
   StreamChannel c;
   get(j, "id", c.id);
   get(j, "label", c.label);
+  get(j, "platform", c.platform);
+  if (c.platform != "twitch") c.platform = "youtube";
   get(j, "studioUrl", c.studioUrl);
   get(j, "streamUrl", c.streamUrl);
+  get(j, "twitchLogin", c.twitchLogin);
+  get(j, "twitchUserId", c.twitchUserId);
+  get(j, "twitchDisplayName", c.twitchDisplayName);
+  get(j, "title", c.title);
+  get(j, "categoryId", c.categoryId);
+  get(j, "categoryName", c.categoryName);
+  get(j, "language", c.language);
+  get(j, "tags", c.tags);
+  get(j, "applyInfoOnGoLive", c.applyInfoOnGoLive);
   if (c.id.empty()) c.id = "default";
   if (c.label.empty()) c.label = "Main Channel";
   return c;
@@ -149,7 +173,7 @@ json UiPrefs::toJson() const {
   for (const auto& c : channels) ch.push_back(c.toJson());
   return {{"hud", hud}, {"hudX", hudX}, {"hudY", hudY},
           {"shareTargetMB", shareTargetMB}, {"shareToClipboard", shareToClipboard},
-          {"darkTheme", darkTheme}, {"channels", ch}};
+          {"darkTheme", darkTheme}, {"channels", ch}, {"twitchClientId", twitchClientId}};
 }
 
 UiPrefs UiPrefs::fromJson(const json& j) {
@@ -160,6 +184,7 @@ UiPrefs UiPrefs::fromJson(const json& j) {
   get(j, "shareTargetMB", p.shareTargetMB);
   get(j, "shareToClipboard", p.shareToClipboard);
   get(j, "darkTheme", p.darkTheme);
+  get(j, "twitchClientId", p.twitchClientId);
   auto it = j.find("channels");
   if (it != j.end() && it->is_array()) {
     for (const auto& item : *it) p.channels.push_back(StreamChannel::fromJson(item));

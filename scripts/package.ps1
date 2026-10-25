@@ -21,7 +21,7 @@ if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
 New-Item -ItemType Directory -Force $stage | Out-Null
 
 # Application, Qt and FFmpeg runtime; leave out the test tools, PDBs and the redistributable installer.
-$skip = 'vv_unit_tests.exe', 'testsubject.exe', 'vc_redist.x64.exe'
+$skip = 'vv_unit_tests.exe', 'vv_functional_driver.exe', 'testsubject.exe', 'vc_redist.x64.exe'
 Get-ChildItem $bin -File | Where-Object { $skip -notcontains $_.Name -and $_.Extension -ne '.pdb' } | Copy-Item -Destination $stage
 Get-ChildItem $bin -Directory | ForEach-Object { Copy-Item $_.FullName (Join-Path $stage $_.Name) -Recurse }
 

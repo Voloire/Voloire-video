@@ -136,6 +136,11 @@ vv::json TrayController::state() {
           {"error", panel_->errorText().toStdString()},
           {"share", panel_->shareStatus()},
           {"clipboardFiles", clip},
+          {"clipboardText", QApplication::clipboard()->text().toStdString()},
+          {"links", panel_->shareLinks()},
+          {"twitch", panel_->twitchStatus()},
+          {"twitchUi", panel_->twitchUiState()},
+          {"youtubeUi", panel_->youtubeUiState()},
           {"menu", dumpMenu(&menu_)}};
 }
 

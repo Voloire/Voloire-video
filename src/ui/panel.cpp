@@ -2,6 +2,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDateTime>
 #include <QDesktopServices>
 #include <QFileDialog>
 #include <QFrame>
@@ -28,13 +29,12 @@
 #include <QWindow>
 #include <cmath>
 #include <windows.h>
+#include "links.h"
 #include "secrets.h"
 #include "telemetry.h"
 #include "theme.h"
 
 namespace vv::ui {
-
-namespace {
 
 QFrame* makeCard(const QString& title, QLayout* inner, QWidget* parent) {
   auto* f = new QFrame(parent);
@@ -48,6 +48,8 @@ QFrame* makeCard(const QString& title, QLayout* inner, QWidget* parent) {
   v->addLayout(inner);
   return f;
 }
+
+namespace {
 
 Qt::Edges hitEdges(const QWidget* w, const QPoint& p) {
   constexpr int m = 6;
@@ -101,6 +103,7 @@ MainPanel::MainPanel(vv::AppController& app, QWidget* parent) : QWidget(parent),
 MainPanel::~MainPanel() {
   stopIdleAudio();
   if (startTh_.joinable()) startTh_.join();
+  for (auto& task : asyncTasks_) task.wait();
 }
 
 void MainPanel::build() {
@@ -340,7 +343,7 @@ void MainPanel::build() {
     for (int mb : {10, 25, 50, 100}) shareCombo_->addItem(QString("%1 MB").arg(mb), mb);
     outputCombo_ = new QComboBox(this);
     outputCombo_->addItem("Record to file", "file");
-    outputCombo_->addItem("Stream to YouTube", "stream");
+    outputCombo_->addItem("Stream (live)", "stream");
     dirEdit_ = new QLineEdit(QString::fromStdString(app_.config().outDir), this);
     auto* browse = new QPushButton("...", this);
     auto* open = new QPushButton("OPEN", this);
@@ -452,7 +455,7 @@ void MainPanel::build() {
     });
     connect(addChBtn_, &QPushButton::clicked, this, &MainPanel::promptAddChannel);
     connect(openStreamTab, &QPushButton::clicked, this, [this] { if (tabs_) tabs_->setCurrentIndex(1); });
-    connect(studioBtn_, &QPushButton::clicked, this, &MainPanel::openYouTubeStudio);
+    connect(studioBtn_, &QPushButton::clicked, this, [this] { openStudio(); });
     connect(keyClear_, &QPushButton::clicked, this, [this] { clearStreamKey(); });
     connect(localCopyCheck_, &QCheckBox::toggled, this, [this](bool on) {
       if (ytLocalCopyCheck_ && ytLocalCopyCheck_->isChecked() != on) {
@@ -507,11 +510,11 @@ void MainPanel::build() {
       ytChannelLabelEdit_ = new QLineEdit(this);
       ytChannelLabelEdit_->setPlaceholderText("e.g. Main Channel, Gaming, Clips");
       ytStudioUrlEdit_ = new QLineEdit(this);
-      ytStudioUrlEdit_->setPlaceholderText("UC... or https://studio.youtube.com/channel/...");
+      ytStudioUrlEdit_->setPlaceholderText("UC... or https://studio.youtube.com/channel/... (needed for the share link)");
 
       ytOutputCombo_ = new QComboBox(this);
       ytOutputCombo_->addItem("Record to file", "file");
-      ytOutputCombo_->addItem("Stream to YouTube (LIVE)", "stream");
+      ytOutputCombo_->addItem("Stream (LIVE)", "stream");
       ytLocalCopyCheck_ = new QCheckBox("Save local .mkv copy while live", this);
       ytKeyStateLabel_ = new QLabel("Stream key: NOT SET", this);
       ytKeyStateLabel_->setObjectName("status");
@@ -608,7 +611,7 @@ void MainPanel::build() {
         if (setStreamKey(ytKeyEdit_->text().trimmed().toStdString())) ytKeyEdit_->clear();
       });
       connect(ytKeyClear_, &QPushButton::clicked, this, [this] { clearStreamKey(); });
-      connect(ytStudioBtn_, &QPushButton::clicked, this, &MainPanel::openYouTubeStudio);
+      connect(ytStudioBtn_, &QPushButton::clicked, this, [this] { openStudio(); });
       connect(streamServerCombo_, &QComboBox::currentIndexChanged, this, [this] {
         if (loading_) return;
         QString u = streamServerCombo_->currentData().toString();
@@ -802,8 +805,11 @@ void MainPanel::build() {
         }
       });
     }
+    // Card 4: share links (the live page at once, the watch page when YouTube has it)
+    ytBody->addWidget(makeCard("SHARE", buildShareGrid(ytShare_, "youtube"), this));
     ytBody->addStretch(1);
   }
+  buildTwitchTab();
   for (auto* c : findChildren<QComboBox*>()) {
     c->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     c->setMinimumContentsLength(6);
@@ -845,6 +851,7 @@ void MainPanel::build() {
   pick(streamPresetCombo_, sp);
   localCopyCheck_->setChecked(s.recordWhileStreaming);
   ytLocalCopyCheck_->setChecked(s.recordWhileStreaming);
+  twLocalCopyCheck_->setChecked(s.recordWhileStreaming);
   sysVolSlider_->setValue(s.sysVolumePct);
   ytSysVolSlider_->setValue(s.sysVolumePct);
   sysVolLabel_->setText(QString("%1%").arg(s.sysVolumePct));
@@ -1017,19 +1024,23 @@ void MainPanel::syncKeyUi() {
   if (ytKeyEdit_) ytKeyEdit_->setPlaceholderText(set ? "•••••••• (key stored encrypted)" : "Paste stream key from YouTube Studio > Go live");
   if (keyClear_) keyClear_->setEnabled(set && recState() == RecState::Idle && !starting_);
   if (ytKeyClear_) ytKeyClear_->setEnabled(set && recState() == RecState::Idle && !starting_);
+  const bool tw = activeChannelPlatform() == "twitch";
   if (studioBtn_) {
-    studioBtn_->setText(QString("STUDIO (%1)").arg(chLbl.left(14)));
-    studioBtn_->setToolTip(QString("Open YouTube Studio for channel '%1'").arg(chLbl));
+    studioBtn_->setText(QString(tw ? "DASHBOARD (%1)" : "STUDIO (%1)").arg(chLbl.left(14)));
+    studioBtn_->setToolTip(QString(tw ? "Open the Twitch stream manager for '%1'" : "Open YouTube Studio for channel '%1'").arg(chLbl));
   }
   if (ytStudioBtn_) {
-    ytStudioBtn_->setText(QString("STUDIO: %1").arg(chLbl.left(18)));
-    ytStudioBtn_->setToolTip(QString("Open YouTube Studio for channel '%1'").arg(chLbl));
+    ytStudioBtn_->setText(QString(tw ? "DASHBOARD: %1" : "STUDIO: %1").arg(chLbl.left(18)));
+    ytStudioBtn_->setToolTip(QString(tw ? "Open the Twitch stream manager for '%1'" : "Open YouTube Studio for channel '%1'").arg(chLbl));
   }
   if (ytDelChBtn_) ytDelChBtn_->setEnabled(channels().size() > 1 && recState() == RecState::Idle && !starting_);
+  syncTwitchUi();
 }
 
-bool MainPanel::setStreamKey(const std::string& key) {
-  vv::json r = app_.handle({{"cmd", "set_stream_key"}, {"key", key}, {"channel", activeChannelId().toStdString()}});
+bool MainPanel::setStreamKey(const std::string& key) { return setStreamKeyFor(activeChannelId(), key); }
+
+bool MainPanel::setStreamKeyFor(const QString& channelId, const std::string& key) {
+  vv::json r = app_.handle({{"cmd", "set_stream_key"}, {"key", key}, {"channel", channelId.toStdString()}});
   if (!r.value("ok", false)) showError(QString::fromStdString(r.value("error", std::string("cannot store the stream key"))));
   else showError({});
   refreshChannelCombos();
@@ -1075,7 +1086,7 @@ void MainPanel::refreshChannelCombos() {
     const auto& c = chs[i];
     std::string sec = (c.id.empty() || c.id == "default") ? "stream_key" : ("stream_key_" + c.id);
     bool hasKey = !vv::loadSecret(sec).empty();
-    QString itemText = QString("%1  [%2]").arg(QString::fromStdString(c.label), hasKey ? "KEY SET" : "NO KEY");
+    QString itemText = QString("[%1] %2  [%3]").arg(c.platform == "twitch" ? "TW" : "YT", QString::fromStdString(c.label), hasKey ? "KEY SET" : "NO KEY");
     QString cid = QString::fromStdString(c.id);
     channelCombo_->addItem(itemText, cid);
     ytChannelCombo_->addItem(itemText, cid);
@@ -1157,11 +1168,25 @@ void MainPanel::deleteActiveChannel() {
   selectChannel(QString::fromStdString(prefs_->channels.front().id));
 }
 
-void MainPanel::openYouTubeStudio() {
-  QString raw = ytStudioUrlEdit_ ? ytStudioUrlEdit_->text().trimmed() : QString();
-  if (raw.isEmpty()) {
-    std::string cid = activeChannelId().toStdString();
-    for (const auto& c : channels()) if (c.id == cid) raw = QString::fromStdString(c.studioUrl).trimmed();
+void MainPanel::openStudio(const QString& platform) {
+  const QString active = activeChannelPlatform();
+  const QString pf = platform.isEmpty() ? active : platform;
+  if (pf == "twitch") {
+    const auto* p = twitchProfile();
+    openExternal(QUrl(p && !p->studioUrl.empty() ? QString::fromStdString(p->studioUrl) : QString("https://dashboard.twitch.tv/")));
+    return;
+  }
+  // YouTube: the Studio field of the active channel, or the first YouTube profile when a Twitch one is active.
+  QString raw;
+  if (active == "youtube") {
+    raw = ytStudioUrlEdit_ ? ytStudioUrlEdit_->text().trimmed() : QString();
+    if (raw.isEmpty()) {
+      std::string cid = activeChannelId().toStdString();
+      for (const auto& c : channels()) if (c.id == cid) raw = QString::fromStdString(c.studioUrl).trimmed();
+    }
+  } else {
+    for (const auto& c : channels())
+      if (c.platform != "twitch") { raw = QString::fromStdString(c.studioUrl).trimmed(); break; }
   }
   QString url = "https://studio.youtube.com/";
   if (raw.startsWith("http://") || raw.startsWith("https://")) {
@@ -1171,7 +1196,7 @@ void MainPanel::openYouTubeStudio() {
   } else if (raw.startsWith("@")) {
     url = "https://www.youtube.com/" + raw + "/live";
   }
-  QDesktopServices::openUrl(QUrl(url));
+  openExternal(QUrl(url));
 }
 
 bool MainPanel::sysMuted() const { return sysMuteBtn_ && sysMuteBtn_->isChecked(); }
@@ -1294,6 +1319,11 @@ void MainPanel::setPrefs(vv::UiPrefs* p) {
     refreshChannelCombos();
     QString savedCh = QString::fromStdString(app_.config().streamChannel);
     if (!savedCh.isEmpty()) selectChannel(savedCh);
+    if (twClientIdEdit_) {
+      QSignalBlocker b(twClientIdEdit_);
+      twClientIdEdit_->setText(QString::fromStdString(prefs_->twitchClientId));
+    }
+    loadTwitchFields();
     syncKeyUi();
   }
   if (shareCombo_ && prefs_) {
@@ -1417,10 +1447,32 @@ void MainPanel::startRecording() {
     return;
   }
   showError({});
+  // Twitch: the broadcast info goes first, and a refusal stops the go-live before any connection.
+  vv::json info;
+  if (c.output == "stream" && prefs_) {
+    for (const auto& ch : prefs_->channels)
+      if (ch.id == c.streamChannel && ch.platform == "twitch" && ch.applyInfoOnGoLive)
+        info = {{"cmd", "twitch_set_info"}, {"channel", ch.id},           {"title", ch.title},
+                {"categoryId", ch.categoryId}, {"categoryName", ch.categoryName}, {"language", ch.language},
+                {"tags", ch.tags}};
+  }
   starting_ = true;
+  app_.setConfig(c);  // the state hooks (share links) read the channel that is going live
   emit changed();
-  startTh_ = std::thread([this, c] {
+  startTh_ = std::thread([this, c, info] {
     std::string err;
+    if (!info.is_null()) {
+      vv::json r = app_.handle(info);
+      if (!r.value("ok", false)) {
+        std::string why = r.value("error", std::string("Twitch: the broadcast info was refused"));
+        QMetaObject::invokeMethod(this, [this, why] {
+          starting_ = false;
+          showError(QString::fromStdString(why));
+          emit changed();
+        }, Qt::QueuedConnection);
+        return;
+      }
+    }
     bool ok = app_.recorder().start(c, err);
     QMetaObject::invokeMethod(this, [this, ok, err] {
       starting_ = false;
@@ -1498,9 +1550,13 @@ void MainPanel::poll() {
     syncKeyUi();
     emit changed();
   }
+  const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+  if (nowMs - lastLinksMs_ >= 1000) { lastLinksMs_ = nowMs; refreshShareLinks(); }
+  if (nowMs - lastTwSyncMs_ >= 2000) { lastTwSyncMs_ = nowMs; syncTwitchUi(); }
   const bool canEdit = s == RecState::Idle && !starting_;
   for (QWidget* w : std::initializer_list<QWidget*>{sysCombo_, micCombo_, containerCombo_, codecCombo_, encoderCombo_, resCombo_, fpsCombo_, qualityCombo_, shareCombo_, winCombo_, monCombo_, outputCombo_, channelCombo_, addChBtn_, streamKbps_, urlEdit_, keyEdit_, keySave_, localCopyCheck_, ytChannelCombo_, ytAddChBtn_, ytChannelLabelEdit_, ytStudioUrlEdit_, ytOutputCombo_, ytLocalCopyCheck_, streamServerCombo_, streamPresetCombo_, streamResCombo_, ytFpsCombo_, ytEncoderCombo_, ytSysCombo_, ytMicCombo_, ytKbps_, ytUrlEdit_, ytKeyEdit_, ytKeySave_})
     if (w) w->setEnabled(canEdit);
+  applyTwitchEnabled(canEdit);
 }
 
 bool MainPanel::eventFilter(QObject* o, QEvent* e) {

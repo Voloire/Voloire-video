@@ -33,6 +33,11 @@ json screenshots(MainPanel& panel, TrayController& tray, HudBar& hud, const QStr
   panel.setActiveTab(1);
   QApplication::processEvents();
   save(panel.grab(), "panel_stream.png");
+  panel.setActiveTab(2);
+  QApplication::processEvents();
+  save(panel.grab(), "panel_twitch.png");
+  panel.setActiveTab(1);
+  QApplication::processEvents();
   bool wasDark = panel.darkMode();
   panel.setDarkMode(true);
   QApplication::processEvents();
@@ -102,6 +107,14 @@ int main(int argc, char** argv) {
     return 0;
   }
 
+  // The controller rewrites ui.json (Twitch sign-in, broadcast info): the panel reloads it on the Qt thread.
+  ctl.onPrefsChanged = [&] {
+    QMetaObject::invokeMethod(&app, [&] {
+      uiPrefs = loadUiPrefs();
+      panel.onPrefsReloaded();
+    }, Qt::QueuedConnection);
+  };
+
   ControlServer server;
   std::string err;
   json uiOverride = json::object();
@@ -124,6 +137,18 @@ int main(int argc, char** argv) {
         if (req.contains("x") && req.contains("y")) hud.moveTo(req["x"].get<int>(), req["y"].get<int>());
         if (req.contains("testPattern")) hud.setTestPattern(req["testPattern"].get<bool>());
         if (req.contains("exclude")) hud.setExcludeFromCapture(req["exclude"].get<bool>());
+        result = {{"ok", true}};
+      } else if (cmd == "ui_tab") {
+        panel.setActiveTab(req.value("index", 0));
+        result = {{"ok", true}};
+      } else if (cmd == "ui_twitch_connect") {
+        panel.uiTwitchConnect(QString::fromStdString(req.value("clientId", std::string())));
+        result = {{"ok", true}};
+      } else if (cmd == "ui_twitch_set") {
+        panel.uiTwitchSet(req);
+        result = {{"ok", true}};
+      } else if (cmd == "ui_twitch_apply") {
+        panel.twitchApplyInfo();
         result = {{"ok", true}};
       } else if (cmd == "ui_show") {
         panel.show();

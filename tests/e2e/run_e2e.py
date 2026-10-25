@@ -532,6 +532,20 @@ def sc_ui(out):
         rep.check("MIC menu lists default, devices, off", len(mic) >= 3 and mic[0]["text"] == "Default microphone" and mic[-1]["text"] == "Off", [m["text"] for m in mic])
         sysm = [m for m in s["menu"] if m.get("text") == "SYS"][0]["menu"]
         rep.check("SYS menu offers app audio, outputs, off", sysm[0]["text"].startswith("App audio") and sysm[-1]["text"] == "Off", [m["text"] for m in sysm])
+        twm = [m for m in s["menu"] if m.get("text") == "Twitch"]
+        tw_items = twm[0]["menu"] if twm else []
+        connect = next((m for m in tw_items if m.get("text") == "Connect Twitch account..."), {})
+        rep.check("Twitch menu before sign-in: Not connected first, Connect on, Sign out off, Fetch key off",
+                  bool(tw_items) and tw_items[0]["text"] == "Not connected" and connect.get("enabled") is True
+                  and next(m for m in tw_items if m.get("text") == "Sign out")["enabled"] is False
+                  and next(m for m in tw_items if m.get("text") == "Fetch stream key")["enabled"] is False,
+                  [m.get("text") for m in tw_items])
+        shm = [m for m in s["menu"] if m.get("text") == "Share link"]
+        sh_items = {m.get("text"): m for m in (shm[0]["menu"] if shm else [])}
+        rep.check("Share link menu with nothing to share: info line and four disabled entries",
+                  bool(shm) and shm[0]["menu"][0]["text"] == "Live: not available"
+                  and all(sh_items[k]["enabled"] is False for k in ("Copy live link", "Copy video link", "Open live page", "Open video page")),
+                  [m.get("text") for m in (shm[0]["menu"] if shm else [])])
 
         shots = c.call(cmd="ui_screenshot", dir=str(d / "shots"))
         rep.check("screenshots written", shots["ok"] and all(f["ok"] for f in shots["files"]), len(shots["files"]))
@@ -1115,8 +1129,8 @@ def sc_ui_stream(out):
         item = [m["text"] for m in src if "VV TestSubject Stream" in m.get("text", "")][0]
         rep.check("hud menu: Source > test window",
                   c.call(cmd="ui_trigger", path=["Source", item], surface="hud")["ok"])
-        rep.check("hud menu: Output > Stream to YouTube",
-                  c.call(cmd="ui_trigger", path=["Output", "Stream to YouTube"], surface="hud")["ok"])
+        rep.check("hud menu: Output > Stream (live)",
+                  c.call(cmd="ui_trigger", path=["Output", "Stream (live)"], surface="hud")["ok"])
         live = hud_action("Go live")
         rep.check("with no key: Go live is disabled", live is not None and live["enabled"] is False, live)
         yt = hud_submenu("YouTube")
@@ -1177,6 +1191,474 @@ def sc_ui_stream(out):
     return rep
 
 
+def connect_twitch(c, fake, timeout=15):
+    """Signs the GUI into the fake Twitch over the pipe; returns the twitch_status when done."""
+    r = c.call(cmd="twitch_auth_start", clientId=fake.client_id)
+    assert r.get("ok"), r
+    fake.approve()
+    end = time.time() + timeout
+    while time.time() < end:
+        s = c.call(cmd="twitch_status")
+        if s.get("signedIn"):
+            return s
+        time.sleep(0.2)
+    return c.call(cmd="twitch_status")
+
+
+def sc_twitch_auth(out):
+    rep = Report("twitch_auth")
+    d = out / "twitch_auth"
+    if d.exists():
+        shutil.rmtree(d, ignore_errors=True)
+    d.mkdir(parents=True, exist_ok=True)
+    from fakes.twitch_api import FakeTwitch
+    fake = FakeTwitch()
+    gui = Gui(d, "vv-e2e-twitch-auth", env_extra=fake.env)
+    dumps = []  # every pipe answer, scanned for tokens and the key at the end
+
+    def call(**req):
+        r = gui.c.call(**req)
+        dumps.append(json.dumps(r))
+        return r
+
+    settings = d / "settings"
+    try:
+        s = call(cmd="twitch_status")
+        rep.check("before anything: not signed in, no client id, auth idle",
+                  s.get("signedIn") is False and s.get("clientIdSet") is False and s["auth"]["state"] == "idle", s)
+
+        r = call(cmd="twitch_auth_start", clientId=fake.client_id)
+        rep.check("auth start: user code and verification URI",
+                  r.get("ok") is True and r.get("userCode") == fake.user_code
+                  and r.get("verificationUri") == fake.base + "/activate", r)
+        s = call(cmd="twitch_status")
+        rep.check("while waiting: auth pending and client id remembered",
+                  s["auth"]["state"] == "pending" and s["clientIdSet"] is True, s)
+
+        fake.approve()
+        end = time.time() + 10
+        while time.time() < end and not call(cmd="twitch_status").get("signedIn"):
+            time.sleep(0.2)
+        s = call(cmd="twitch_status")
+        rep.check("after approval: signed in as voloire with the channel profile",
+                  s.get("signedIn") is True and s.get("login") == "voloire" and s.get("userId") == "123456"
+                  and s.get("channel") == "tw_123456" and s["auth"]["state"] == "ok", s)
+
+        ui = json.loads((settings / "ui.json").read_text(encoding="utf-8"))
+        ch = next((x for x in ui.get("channels", []) if x.get("id") == "tw_123456"), {})
+        rep.check("ui.json: Twitch profile and client id saved",
+                  ch.get("platform") == "twitch" and ch.get("label") == "voloire"
+                  and ch.get("streamUrl") == "rtmp://live.twitch.tv/app" and ui.get("twitchClientId") == fake.client_id, ch)
+
+        r = call(cmd="twitch_fetch_key", channel="tw_123456")
+        rep.check("fetch key: stored, never returned",
+                  r.get("ok") is True and r.get("streamKeySet") is True and fake.stream_key not in json.dumps(r), r)
+        rep.check("fetch key: encrypted blob on disk", (settings / "secrets" / "stream_key_tw_123456.bin").exists())
+        cfg = call(cmd="get_config", channel="tw_123456")
+        rep.check("get_config reports the Twitch key as set", cfg["config"]["streamKeySet"] is True, cfg)
+
+        r = call(cmd="twitch_get_info")
+        rep.check("get info: the channel's title and category",
+                  r.get("ok") is True and r.get("title") == fake.channel["title"]
+                  and r.get("categoryId") == fake.channel["game_id"], r)
+
+        fake.expire_token()
+        r = call(cmd="twitch_get_info")
+        rep.check("expired access token: refreshed once, call succeeds", r.get("ok") is True and fake.refreshes == 1,
+                  f"{r} refreshes={fake.refreshes}")
+
+        fake.break_refresh()
+        fake.expire_token()
+        r = call(cmd="twitch_get_info")
+        rep.check("refresh refused: clear error asking to sign in again",
+                  r.get("ok") is False and "sign in" in r.get("error", ""), r)
+        rep.check("refresh refused: no longer signed in", call(cmd="twitch_status").get("signedIn") is False)
+
+        s = connect_twitch(gui.c, fake)
+        rep.check("sign in again after the failure", s.get("signedIn") is True, s)
+        call(cmd="twitch_sign_out")
+        rep.check("sign out: signed out and the token blob is gone",
+                  call(cmd="twitch_status").get("signedIn") is False
+                  and not (settings / "secrets" / "twitch_access_token.bin").exists())
+        n_after_signout = len(fake.requests)
+        r = call(cmd="twitch_get_info")
+        rep.check("signed out: refused with no request to Twitch",
+                  r.get("ok") is False and "not connected" in r.get("error", "") and len(fake.requests) == n_after_signout,
+                  f"{r} requests {n_after_signout}->{len(fake.requests)}")
+
+        hits = scan_for_secrets([settings, d / "telemetry", *dumps], [*fake.all_tokens, fake.stream_key])
+        rep.check("no token and no stream key in the settings, the telemetry or any pipe answer", not hits, hits)
+    finally:
+        gui.close()
+        fake.stop()
+    return rep
+
+
+YT_FAKE_CHANNEL = "UCfakefakefakefakefake01"  # a channel id is exactly 24 characters
+
+
+def sc_youtube_links(out):
+    rep = Report("youtube_links")
+    d = out / "youtube_links"
+    if d.exists():
+        shutil.rmtree(d, ignore_errors=True)
+    d.mkdir(parents=True, exist_ok=True)
+    from fakes.rtmp_ingest import RtmpIngest
+    from fakes.twitch_api import FakeTwitch
+    if not rep.check("ffmpeg build has the rtmp protocol", capabilities()["rtmp"]):
+        return rep
+    key = "sk-live-ytlinks-abcd1234"
+    fake = FakeTwitch()  # serves the public YouTube live page too
+    ing = RtmpIngest(d, key=key)
+    ing.start()
+    (d / "settings").mkdir(parents=True, exist_ok=True)
+    (d / "settings" / "ui.json").write_text(json.dumps({"channels": [
+        {"id": "default", "label": "Main Channel", "platform": "youtube", "studioUrl": YT_FAKE_CHANNEL,
+         "streamUrl": ing.url}]}), encoding="utf-8")
+    subj = Subject(d, title="VV TestSubject Links", hz=440)
+    gui = Gui(d, "vv-e2e-yt-links", env_extra=fake.env)
+    dumps = []
+
+    def call(**req):
+        r = gui.c.call(**req)
+        dumps.append(json.dumps(r))
+        return r
+
+    def wait_for(pred, timeout):
+        end = time.time() + timeout
+        while time.time() < end:
+            v = pred()
+            if v:
+                return v
+            time.sleep(0.2)
+        return pred()
+
+    try:
+        rep.check("links before any stream: idle", call(cmd="links")["links"]["state"] == "idle")
+        call(cmd="ui_override", config={"outDir": str(d / "rec"), "name": "ytlinks", "mic": "none", "sys": "none",
+                                        "fps": 30, "streamUrl": ing.url, "telemetryDir": str(d / "telemetry")})
+        src = [m for m in call(cmd="ui_state")["menu"] if m.get("text") == "Source"][0]["menu"]
+        item = [m["text"] for m in src if "VV TestSubject Links" in m.get("text", "")][0]
+        rep.check("menu: Source > test window", call(cmd="ui_trigger", path=["Source", item], surface="hud")["ok"])
+        rep.check("menu: Output > Stream (live)",
+                  call(cmd="ui_trigger", path=["Output", "Stream (live)"], surface="hud")["ok"])
+        rep.check("set_stream_key", call(cmd="set_stream_key", key=key).get("ok") is True)
+        rep.check("menu: Go live", call(cmd="ui_trigger", path=["Go live"], surface="hud")["ok"])
+        rep.check("state becomes recording", wait_for(lambda: call(cmd="ui_state")["state"] == "recording", 20))
+
+        lk = call(cmd="links")["links"]
+        rep.check("live link is the channel's /live page at once",
+                  lk["platform"] == "youtube" and lk["liveUrl"] == f"{fake.base}/yt/channel/{YT_FAKE_CHANNEL}/live"
+                  and lk["state"] == "watching" and lk["vodUrl"] == "", lk)
+
+        fake.set_youtube_video(YT_FAKE_CHANNEL, "dQw4w9WgXcQ")
+        lk = wait_for(lambda: (lambda x: x if x["state"] == "found" else None)(call(cmd="links")["links"]), 10)
+        rep.check("watch link resolved as soon as YouTube publishes it",
+                  bool(lk) and lk["vodUrl"] == "https://youtu.be/dQw4w9WgXcQ", lk)
+
+        rep.check("status embeds the same links", call(cmd="status")["links"]["vodUrl"] == "https://youtu.be/dQw4w9WgXcQ")
+
+        live_url = f"{fake.base}/yt/channel/{YT_FAKE_CHANNEL}/live"
+        rep.check("YouTube tab shows the live link",
+                  wait_for(lambda: call(cmd="ui_state")["youtubeUi"]["liveLink"] == live_url, 5), call(cmd="ui_state")["youtubeUi"])
+        rep.check("YouTube tab shows the watch link",
+                  wait_for(lambda: call(cmd="ui_state")["youtubeUi"]["vodLink"] == "https://youtu.be/dQw4w9WgXcQ", 5),
+                  call(cmd="ui_state")["youtubeUi"])
+        sh = next(m for m in call(cmd="ui_state")["menu"] if m.get("text") == "Share link")["menu"]
+        rep.check("Share link menu carries the live line and enabled entries",
+                  sh[0]["text"] == "Live: " + live_url and all(m["enabled"] for m in sh[1:]), [(m.get("text"), m.get("enabled")) for m in sh])
+        rep.check("menu: Share link > Copy live link", call(cmd="ui_trigger", path=["Share link", "Copy live link"])["ok"])
+        rep.check("clipboard holds the YouTube live link", call(cmd="ui_state")["clipboardText"] == live_url,
+                  call(cmd="ui_state")["clipboardText"])
+        rep.check("menu: Share link > Copy video link", call(cmd="ui_trigger", path=["Share link", "Copy video link"])["ok"])
+        rep.check("clipboard holds the watch link", call(cmd="ui_state")["clipboardText"] == "https://youtu.be/dQw4w9WgXcQ",
+                  call(cmd="ui_state")["clipboardText"])
+        call(cmd="ui_tab", index=1)
+        shots = call(cmd="ui_screenshot", dir=str(d / "shots"))
+        pngs = {Path(f["file"]).name: f for f in shots.get("files", [])}
+        rep.check("screenshot of the YouTube tab is a real image",
+                  "panel_stream.png" in pngs and pngs["panel_stream.png"]["ok"] and pngs["panel_stream.png"]["w"] > 300,
+                  pngs.get("panel_stream.png"))
+
+        rep.check("menu: End stream", call(cmd="ui_trigger", path=["End stream"], surface="hud")["ok"])
+        rep.check("back to idle", wait_for(lambda: call(cmd="ui_state")["state"] == "idle", 20))
+        lk = call(cmd="links")["links"]
+        rep.check("after the stream: ended, the link is kept",
+                  lk["state"] == "ended" and lk["vodUrl"] == "https://youtu.be/dQw4w9WgXcQ", lk)
+
+        ing.stop()
+        hits = scan_for_secrets([d / "telemetry", d / "settings", *dumps], [key])
+        rep.check("no key leak in the dumps, the settings or the telemetry", not hits, hits)
+
+        # A YouTube profile that only has the generic Studio URL: no channel id, no link to build.
+        gui.close()
+        n = d / "noid"
+        (n / "settings").mkdir(parents=True, exist_ok=True)
+        ing2 = RtmpIngest(n / "ing", key=key)
+        ing2.start()
+        (n / "settings" / "ui.json").write_text(json.dumps({"channels": [
+            {"id": "default", "label": "Main Channel", "platform": "youtube", "studioUrl": "https://studio.youtube.com/",
+             "streamUrl": ing2.url}]}), encoding="utf-8")
+        gui = Gui(n, "vv-e2e-yt-links-noid", env_extra=fake.env)
+        call(cmd="ui_override", config={"outDir": str(n / "rec"), "name": "noid", "mic": "none", "sys": "none",
+                                        "fps": 30, "streamUrl": ing2.url, "telemetryDir": str(n / "telemetry")})
+        src = [m for m in call(cmd="ui_state")["menu"] if m.get("text") == "Source"][0]["menu"]
+        item = [m["text"] for m in src if "VV TestSubject Links" in m.get("text", "")][0]
+        call(cmd="ui_trigger", path=["Source", item], surface="hud")
+        call(cmd="ui_trigger", path=["Output", "Stream (live)"], surface="hud")
+        call(cmd="set_stream_key", key=key)
+        rep.check("no channel id: Go live works", call(cmd="ui_trigger", path=["Go live"], surface="hud")["ok"])
+        rep.check("no channel id: recording", wait_for(lambda: call(cmd="ui_state")["state"] == "recording", 20))
+        lk = call(cmd="links")["links"]
+        rep.check("no channel id: nothing to poll, the hint says what to set",
+                  lk["state"] == "ended" and lk["liveUrl"] == "" and "channel ID" in lk["error"], lk)
+        sh = next(m for m in call(cmd="ui_state")["menu"] if m.get("text") == "Share link")["menu"]
+        rep.check("no channel id: Share link menu reads Live: not available, entries off",
+                  sh[0]["text"] == "Live: not available" and not any(m["enabled"] for m in sh[1:]),
+                  [(m.get("text"), m.get("enabled")) for m in sh])
+        yui = wait_for(lambda: (lambda x: x if "channel ID" in x["liveLink"] else None)(call(cmd="ui_state")["youtubeUi"]), 5)
+        rep.check("no channel id: the YouTube tab shows the hint", bool(yui), call(cmd="ui_state")["youtubeUi"])
+        rep.check("no channel id: End stream", call(cmd="ui_trigger", path=["End stream"], surface="hud")["ok"])
+        rep.check("no channel id: back to idle", wait_for(lambda: call(cmd="ui_state")["state"] == "idle", 20))
+        ing2.stop()
+    finally:
+        gui.close()
+        subj.stop()
+        ing.stop()
+        fake.stop()
+    return rep
+
+
+def sc_twitch_live(out):
+    rep = Report("twitch_live")
+    d = out / "twitch_live"
+    if d.exists():
+        shutil.rmtree(d, ignore_errors=True)
+    d.mkdir(parents=True, exist_ok=True)
+    from fakes.rtmp_ingest import RtmpIngest
+    from fakes.twitch_api import FakeTwitch
+    if not rep.check("ffmpeg build has the rtmp protocol", capabilities()["rtmp"]):
+        return rep
+    fake = FakeTwitch()
+    ing = RtmpIngest(d / "ing1", app="app", key=fake.stream_key)
+    ing.start()
+    ing2 = RtmpIngest(d / "ing2", app="app", key=fake.stream_key)
+    ing2.start()
+    subj = Subject(d, title="VV TestSubject Twitch", hz=440)
+    gui = Gui(d, "vv-e2e-twitch-live", env_extra=fake.env)
+    dumps = []  # every pipe answer, scanned for tokens and the key at the end
+    settings = d / "settings"
+
+    def call(**req):
+        r = gui.c.call(**req)
+        dumps.append(json.dumps(r))
+        return r
+
+    def ui():
+        return call(cmd="ui_state")
+
+    def tw():
+        return ui().get("twitchUi") or {}
+
+    def wait_for(pred, timeout):
+        end = time.time() + timeout
+        while time.time() < end:
+            v = pred()
+            if v:
+                return v
+            time.sleep(0.2)
+        return pred()
+
+    def links():
+        return ui()["links"]
+
+    try:
+        t = tw()
+        rep.check("tab before sign-in: NOT CONNECTED, Connect on, Apply off",
+                  t.get("statusText") == "NOT CONNECTED" and t.get("connectEnabled") is True
+                  and t.get("applyEnabled") is False, t)
+
+        # Sign-in through the panel itself: dialog with the code, browser opened on the verification page.
+        r = call(cmd="ui_twitch_connect", clientId=fake.client_id)
+        rep.check("Connect: started", r.get("ok") is True, r)
+        t = wait_for(lambda: (lambda x: x if "ABCD-1234" in x.get("authDialog", "") else None)(tw()), 5)
+        rep.check("Connect: dialog shows the code, browser opened on the verification page",
+                  bool(t) and t.get("openedUrl") == fake.base + "/activate", t)
+        fake.approve()
+        t = wait_for(lambda: (lambda x: x if x.get("statusText") == "SIGNED IN AS voloire" else None)(tw()), 10)
+        rep.check("after approval the tab reads SIGNED IN AS voloire, Sign out on, Connect off",
+                  bool(t) and t.get("signOutEnabled") is True and t.get("connectEnabled") is False, t)
+        rep.check("the Twitch profile became the active channel",
+                  wait_for(lambda: call(cmd="get_config")["config"]["streamChannel"] == "tw_123456", 5))
+        rep.check("client id field keeps the Client ID", tw().get("clientId") == fake.client_id)
+
+        # The key comes from the account (over the pipe here); the tab shows it as set.
+        rep.check("fetch key", call(cmd="twitch_fetch_key", channel="tw_123456").get("ok") is True)
+        t = wait_for(lambda: (lambda x: x if "SET" in x.get("keyText", "") and "NOT SET" not in x.get("keyText", "") else None)(tw()), 6)
+        rep.check("tab shows the stream key as set", bool(t), tw().get("keyText"))
+
+        r = call(cmd="twitch_search_categories", query="just")
+        rep.check("categories: search by name", r.get("categories") == [{"id": "509658", "name": "Just Chatting"}], r)
+        r = call(cmd="twitch_ingests")
+        rep.check("ingests: urls stripped of the key placeholder",
+                  [i["url"] for i in r.get("ingests", [])] == ["rtmp://live.twitch.tv/app", "rtmp://mil.contribute.live-video.net/app"], r)
+
+        tw_menu = next(m for m in ui()["menu"] if m.get("text") == "Twitch")["menu"]
+        rep.check("Twitch menu signed in: Signed in as voloire, Sign out on, Connect off, Fetch key on",
+                  tw_menu[0]["text"] == "Signed in as voloire"
+                  and next(m for m in tw_menu if m.get("text") == "Sign out")["enabled"] is True
+                  and next(m for m in tw_menu if m.get("text") == "Connect Twitch account...")["enabled"] is False
+                  and next(m for m in tw_menu if m.get("text") == "Fetch stream key")["enabled"] is True,
+                  [m.get("text") for m in tw_menu])
+        rep.check("Twitch menu: the key line says Stream key: set",
+                  any(m.get("text") == "Stream key: set" for m in tw_menu), [m.get("text") for m in tw_menu])
+        dest = next((m for m in tw_menu if m.get("text") == "voloire"), None)
+        rep.check("Twitch menu: the Twitch profile is listed and checked as the destination",
+                  dest is not None and dest.get("checked") is True, dest)
+        yt_menu = next(m for m in ui()["menu"] if m.get("text") == "YouTube")["menu"]
+        rep.check("YouTube menu lists only YouTube channels", not any(m.get("text") == "voloire" for m in yt_menu),
+                  [m.get("text") for m in yt_menu])
+        rep.check("menu: Twitch > voloire selects the destination", call(cmd="ui_trigger", path=["Twitch", "voloire"])["ok"])
+        rep.check("menu: Twitch > Apply info when going live switches it off",
+                  call(cmd="ui_trigger", path=["Twitch", "Apply info when going live"])["ok"])
+        ui_json = json.loads((settings / "ui.json").read_text(encoding="utf-8"))
+        rep.check("the switch is saved in the profile",
+                  next(x for x in ui_json["channels"] if x["id"] == "tw_123456")["applyInfoOnGoLive"] is False)
+        rep.check("menu: Apply info when going live back on",
+                  call(cmd="ui_trigger", path=["Twitch", "Apply info when going live"])["ok"])
+        ui_json = json.loads((settings / "ui.json").read_text(encoding="utf-8"))
+        rep.check("the switch is back on in the profile",
+                  next(x for x in ui_json["channels"] if x["id"] == "tw_123456")["applyInfoOnGoLive"] is True)
+
+        # Broadcast info typed in the tab, applied to Twitch.
+        call(cmd="ui_twitch_set", title="Late session", tags="gaming, chill", language="it",
+             categoryId="509658", categoryName="Just Chatting")
+        t = tw()
+        rep.check("fields hold what was typed",
+                  t.get("title") == "Late session" and t.get("tags") == "gaming, chill" and t.get("language") == "it"
+                  and t.get("category") == "Just Chatting", t)
+        call(cmd="ui_twitch_apply")
+        t = wait_for(lambda: (lambda x: x if x.get("infoStatus", "").startswith(("APPLIED", "NOT APPLIED")) else None)(tw()), 8)
+        rep.check("Apply: the tab says APPLIED TO TWITCH", bool(t) and t.get("infoStatus") == "APPLIED TO TWITCH", t)
+        rep.check("Apply: Twitch received exactly the typed info",
+                  bool(fake.patches) and fake.patches[-1] == {"title": "Late session", "game_id": "509658",
+                                                              "broadcaster_language": "it", "tags": ["gaming", "chill"]},
+                  fake.patches)
+        ui_json = json.loads((settings / "ui.json").read_text(encoding="utf-8"))
+        ch = next((x for x in ui_json["channels"] if x["id"] == "tw_123456"), {})
+        rep.check("Apply: the info is saved in the profile",
+                  ch.get("title") == "Late session" and ch.get("categoryId") == "509658" and ch.get("tags") == ["gaming", "chill"], ch)
+
+        n = len(fake.patches)
+        call(cmd="ui_twitch_set", tags="a,b,c,d,e,f,g,h,i,j,k")
+        call(cmd="ui_twitch_apply")
+        t = wait_for(lambda: (lambda x: x if x.get("infoStatus", "").startswith("NOT APPLIED") else None)(tw()), 8)
+        rep.check("11 tags: refused with the reason, nothing sent to Twitch",
+                  bool(t) and "10 tags" in t.get("infoStatus", "") and len(fake.patches) == n, t)
+        call(cmd="ui_twitch_set", tags="gaming, chill")
+
+        # Output and source, then a go live that Twitch refuses before any connection.
+        call(cmd="ui_override", config={"outDir": str(d / "rec"), "name": "twlive", "mic": "none", "sys": "none",
+                                        "fps": 30, "streamUrl": ing.url, "recordWhileStreaming": True,
+                                        "telemetryDir": str(d / "telemetry")})
+        src = [m for m in ui()["menu"] if m.get("text") == "Source"][0]["menu"]
+        item = [m["text"] for m in src if "VV TestSubject Twitch" in m.get("text", "")][0]
+        rep.check("menu: Source > test window", call(cmd="ui_trigger", path=["Source", item], surface="hud")["ok"])
+        rep.check("menu: Output > Stream (live)",
+                  call(cmd="ui_trigger", path=["Output", "Stream (live)"], surface="hud")["ok"])
+        live = next((m for m in ui()["hud"]["menu"] if m.get("text") == "Go live"), None)
+        rep.check("Go live is enabled with the Twitch key set", live is not None and live["enabled"] is True, live)
+
+        fake.reject_patch(409, "title too long")
+        rep.check("menu: Go live (Twitch will refuse the info)", call(cmd="ui_trigger", path=["Go live"], surface="hud")["ok"])
+        e = wait_for(lambda: (lambda x: x if "title too long" in x.get("error", "") else None)(ui()), 10)
+        rep.check("refused info: error names Twitch and the reason, state stays idle",
+                  bool(e) and "Twitch" in e["error"] and e["state"] == "idle", e and e.get("error"))
+        time.sleep(1.0)
+        rep.check("refused info: the ingest never saw a connection", not ing.received.exists())
+
+        # The real go live: the info is applied first, then the stream starts.
+        rep.check("menu: Go live", call(cmd="ui_trigger", path=["Go live"], surface="hud")["ok"])
+        rep.check("state becomes recording", wait_for(lambda: ui()["state"] == "recording", 20))
+        h = ui()["hud"]
+        rep.check("hud: LIVE", h.get("label") == "LIVE", h.get("label"))
+        rep.check("ingest: connection received", ing.wait_connected(20))
+        rep.check("info applied again on go live", fake.patches[-1].get("title") == "Late session", fake.patches[-1])
+        lk = links()
+        rep.check("live link is the channel page at once",
+                  lk["platform"] == "twitch" and lk["liveUrl"] == "https://www.twitch.tv/voloire" and lk["state"] == "watching", lk)
+        t = wait_for(lambda: (lambda x: x if x.get("liveLink") == "https://www.twitch.tv/voloire" else None)(tw()), 5)
+        rep.check("tab shows the live link", bool(t), tw().get("liveLink"))
+
+        fake.set_live("999")
+        fake.add_vod("41234567", "999", age_s=600)  # matched by stream id; old enough not to match the next session by date
+        lk = wait_for(lambda: (lambda x: x if x["state"] == "found" else None)(links()), 10)
+        rep.check("VOD link resolved as soon as Twitch lists it",
+                  bool(lk) and lk["vodUrl"] == "https://www.twitch.tv/videos/41234567", lk)
+        t = wait_for(lambda: (lambda x: x if x.get("vodLink") == "https://www.twitch.tv/videos/41234567" else None)(tw()), 5)
+        rep.check("tab shows the VOD link", bool(t), tw().get("vodLink"))
+
+        sh = {m.get("text"): m for m in next(m for m in ui()["menu"] if m.get("text") == "Share link")["menu"]}
+        rep.check("Share link menu: Live line and all four entries enabled once the VOD is there",
+                  ui()["menu"] and next(iter(sh)) == "Live: https://www.twitch.tv/voloire"
+                  and all(sh[k]["enabled"] is True for k in ("Copy live link", "Copy video link", "Open live page", "Open video page")),
+                  list(sh))
+        rep.check("menu: Share link > Copy video link", call(cmd="ui_trigger", path=["Share link", "Copy video link"])["ok"])
+        rep.check("clipboard holds the VOD link", ui()["clipboardText"] == "https://www.twitch.tv/videos/41234567", ui()["clipboardText"])
+        rep.check("menu: Share link > Copy live link", call(cmd="ui_trigger", path=["Share link", "Copy live link"])["ok"])
+        rep.check("clipboard holds the live link", ui()["clipboardText"] == "https://www.twitch.tv/voloire", ui()["clipboardText"])
+        rep.check("menu: Share link > Open video page", call(cmd="ui_trigger", path=["Share link", "Open video page"])["ok"])
+        rep.check("the video page was handed to the browser", tw().get("openedUrl") == "https://www.twitch.tv/videos/41234567", tw().get("openedUrl"))
+        tw_live = next(m for m in ui()["menu"] if m.get("text") == "Twitch")["menu"]
+        rep.check("Twitch menu while live: Sign out and Fetch key are locked",
+                  next(m for m in tw_live if m.get("text") == "Sign out")["enabled"] is False
+                  and next(m for m in tw_live if m.get("text") == "Fetch stream key")["enabled"] is False,
+                  [(m.get("text"), m.get("enabled")) for m in tw_live])
+
+        call(cmd="ui_tab", index=2)
+        shots = call(cmd="ui_screenshot", dir=str(d / "shots"))
+        pngs = {Path(f["file"]).name: f for f in shots.get("files", [])}
+        rep.check("screenshot of the Twitch tab is a real image",
+                  "panel_twitch.png" in pngs and pngs["panel_twitch.png"]["ok"] and pngs["panel_twitch.png"]["w"] > 300, pngs.get("panel_twitch.png"))
+
+        rep.check("menu: End stream", call(cmd="ui_trigger", path=["End stream"], surface="hud")["ok"])
+        rep.check("back to idle", wait_for(lambda: ui()["state"] == "idle", 20))
+        rep.check("after the stream: ended, the VOD link is kept",
+                  links()["state"] == "ended" and links()["vodUrl"] == "https://www.twitch.tv/videos/41234567", links())
+        ing.stop()
+        local = sorted((d / "rec").glob("twlive_*.mkv"))
+        rep.check("local copy written beside the stream", len(local) == 1 and local[0].stat().st_size > 0, local)
+        if local:
+            ok, why = decodes_clean(local[0])
+            rep.check("local copy decodes clean", ok, why)
+        if ing.received.exists():
+            ok, why = decodes_clean(ing.received)
+            rep.check("ingest: decodes clean", ok, why)
+
+        # A session whose VOD never appears: End stream is quick and the tracker gives up.
+        fake.set_offline()
+        call(cmd="ui_override", config={"outDir": str(d / "rec"), "name": "twlive2", "mic": "none", "sys": "none",
+                                        "fps": 30, "streamUrl": ing2.url, "recordWhileStreaming": False,
+                                        "telemetryDir": str(d / "telemetry2")})
+        rep.check("menu: Go live (second session)", call(cmd="ui_trigger", path=["Go live"], surface="hud")["ok"])
+        rep.check("second session recording", wait_for(lambda: ui()["state"] == "recording", 20))
+        t0 = time.time()
+        rep.check("menu: End stream (second session)", call(cmd="ui_trigger", path=["End stream"], surface="hud")["ok"])
+        rep.check("second session back to idle in under 5 s", wait_for(lambda: ui()["state"] == "idle", 5) and time.time() - t0 < 5)
+        lk = wait_for(lambda: (lambda x: x if x["state"] == "ended" else None)(links()), 10)
+        rep.check("no VOD ever: the tracker ends by itself", bool(lk) and lk["vodUrl"] == "", lk)
+
+        hits = scan_for_secrets([settings, d / "telemetry", d / "telemetry2", *dumps], [*fake.all_tokens, fake.stream_key])
+        rep.check("no token and no stream key in the settings, the telemetry or any pipe answer", not hits, hits)
+    finally:
+        gui.close()
+        subj.stop()
+        ing.stop()
+        ing2.stop()
+        fake.stop()
+    return rep
+
+
 def sc_installers(out):
     import sc_installers
     return sc_installers.run(out)
@@ -1204,6 +1686,9 @@ SCENARIOS = {
     "ui": sc_ui,
     "hud": sc_hud,
     "ui_stream": sc_ui_stream,
+    "twitch_auth": sc_twitch_auth,
+    "youtube_links": sc_youtube_links,
+    "twitch_live": sc_twitch_live,
     "soak": sc_longer_soak,
     "installers": sc_installers,
 }
