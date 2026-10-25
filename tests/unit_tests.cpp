@@ -17,6 +17,7 @@
 #include "secrets.h"
 #include "share_copy.h"
 #include "sources.h"
+#include "twitch.h"
 #include "telemetry.h"
 
 using namespace vv;
@@ -274,6 +275,46 @@ TEST_CASE("envOr falls back when the variable is unset or empty") {
   CHECK(envOr(L"VV_TEST_ENVOR", "fb") == "fb");
   _wputenv(L"VV_TEST_ENVOR=val");
   CHECK(envOr(L"VV_TEST_ENVOR", "fb") == "val");
+}
+
+TEST_CASE("Twitch helpers: ingest template, broadcast validation, patch body") {
+  CHECK(ingestBaseFromTemplate("rtmp://mil.contribute.live-video.net/app/{stream_key}") == "rtmp://mil.contribute.live-video.net/app");
+  CHECK(ingestBaseFromTemplate("rtmp://live.twitch.tv/app") == "rtmp://live.twitch.tv/app");
+  TwitchChannelInfo i;
+  i.title = "Late session"; i.categoryId = "509658"; i.language = "it"; i.tags = {"gaming", "chill"};
+  CHECK(validateBroadcastInfo(i).empty());
+  json b = modifyChannelBody(i);
+  CHECK(b == json({{"title", "Late session"}, {"game_id", "509658"}, {"broadcaster_language", "it"}, {"tags", {"gaming", "chill"}}}));
+  TwitchChannelInfo noCat = i; noCat.categoryId.clear();
+  CHECK_FALSE(modifyChannelBody(noCat).contains("game_id"));
+  TwitchChannelInfo longT = i; longT.title = std::string(141, 'x');
+  CHECK(validateBroadcastInfo(longT).find("140") != std::string::npos);
+  TwitchChannelInfo manyTags = i; manyTags.tags.assign(11, "t");
+  CHECK(validateBroadcastInfo(manyTags).find("10 tags") != std::string::npos);
+  TwitchChannelInfo badTag = i; badTag.tags = {"no spaces"};
+  CHECK(validateBroadcastInfo(badTag).find("no spaces") != std::string::npos);
+  TwitchChannelInfo badLang = i; badLang.language = "italian";
+  CHECK_FALSE(validateBroadcastInfo(badLang).empty());
+  _wputenv(L"VV_TWITCH_API_BASE=http://127.0.0.1:1/helix");
+  CHECK(TwitchBases::fromEnv().api == "http://127.0.0.1:1/helix");
+  _wputenv(L"VV_TWITCH_API_BASE=");
+  CHECK(TwitchBases::fromEnv().api == "https://api.twitch.tv/helix");
+}
+
+TEST_CASE("Twitch client refuses every call while not connected, with no request") {
+  auto dir = tempDir("twitch-offline");
+  std::wstring env = L"VV_SETTINGS_DIR=" + wide(strOf(dir));
+  _wputenv(env.c_str());
+  deleteSecret(kTwitchAccessSecret);
+  deleteSecret(kTwitchRefreshSecret);
+  TwitchBases b;
+  b.api = "http://127.0.0.1:9/helix";  // nothing listens: a request would fail with a transport error instead
+  TwitchClient t("cid", b);
+  CHECK_FALSE(t.signedIn());
+  TwitchUser u;
+  std::string err;
+  CHECK_FALSE(t.me(u, err));
+  CHECK(err.find("not connected") != std::string::npos);
 }
 
 TEST_CASE("planShare fits the target") {
