@@ -226,6 +226,34 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
     grp->addAction(radio(out, "Stream (live)", c.output == "stream", [p] { p->setOutput("stream"); }));
   }
 
+  // Share link: the live page as soon as the stream starts, the video page once the platform has it.
+  QMenu* shl = menu.addMenu("Share link");
+  QAction* shInfo = nullptr;
+  QAction* shCopyLive = nullptr;
+  QAction* shCopyVod = nullptr;
+  QAction* shOpenLive = nullptr;
+  QAction* shOpenVod = nullptr;
+  {
+    const QString live = panel.liveLink();
+    const QString vod = panel.vodLink();
+    shInfo = shl->addAction("Live: " + (live.isEmpty() ? QString("not available") : live));
+    shInfo->setEnabled(false);
+    shCopyLive = shl->addAction("Copy live link");
+    shCopyLive->setEnabled(!live.isEmpty());
+    shCopyLive->setProperty("keepOpen", true);
+    QObject::connect(shCopyLive, &QAction::triggered, &menu, [p] { p->copyLiveLink(); });
+    shCopyVod = shl->addAction("Copy video link");
+    shCopyVod->setEnabled(!vod.isEmpty());
+    shCopyVod->setProperty("keepOpen", true);
+    QObject::connect(shCopyVod, &QAction::triggered, &menu, [p] { p->copyVodLink(); });
+    shOpenLive = shl->addAction("Open live page");
+    shOpenLive->setEnabled(!live.isEmpty());
+    QObject::connect(shOpenLive, &QAction::triggered, &menu, [p] { p->openLiveLink(); });
+    shOpenVod = shl->addAction("Open video page");
+    shOpenVod->setEnabled(!vod.isEmpty());
+    QObject::connect(shOpenVod, &QAction::triggered, &menu, [p] { p->openVodLink(); });
+  }
+
   // YouTube: the key (its fate is the only thing shown), the studio page for the active channel,
   // and quick switching between saved YouTube channels.
   QMenu* yt = menu.addMenu("YouTube");
@@ -246,13 +274,14 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
     yt->addSeparator();
     ytStudio = yt->addAction("Open YouTube Studio");
     ytStudio->setToolTip(QString("Open YouTube Studio for %1").arg(panel.activeChannelLabel()));
-    QObject::connect(ytStudio, &QAction::triggered, &menu, [p] { p->openStudio(); });
+    QObject::connect(ytStudio, &QAction::triggered, &menu, [p] { p->openStudio("youtube"); });
     yt->addSeparator();
     QAction* chHdr = yt->addAction("Destination channel:");
     chHdr->setEnabled(false);
     auto* chGrp = new QActionGroup(yt);
     QString curCh = panel.activeChannelId();
     for (const auto& ch : panel.channels()) {
+      if (ch.platform == "twitch") continue;  // Twitch destinations live in the Twitch menu
       QString cid = QString::fromStdString(ch.id);
       QString lbl = QString::fromStdString(ch.label);
       QAction* ca = yt->addAction(lbl);
@@ -266,6 +295,64 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
     QAction* addCh = yt->addAction("Add YouTube channel...");
     addCh->setEnabled(idle);
     QObject::connect(addCh, &QAction::triggered, &menu, [p] { p->promptAddChannel(); });
+  }
+
+  // Twitch: sign-in, key, broadcast info and the destination profile.
+  QMenu* twm = menu.addMenu("Twitch");
+  QAction* twKeyInfo = nullptr;
+  {
+    vv::json tws = panel.twitchStatus();
+    const bool signedIn = tws.value("signedIn", false);
+    const bool hasProfile = !tws.value("channel", std::string()).empty();
+    const QString name = QString::fromStdString(tws.value("displayName", std::string()));
+    twm->addAction(signedIn ? "Signed in as " + name : QString("Not connected"))->setEnabled(false);
+    QAction* conn = twm->addAction("Connect Twitch account...");
+    conn->setEnabled(idle && !signedIn);
+    QObject::connect(conn, &QAction::triggered, &menu, [p] { p->twitchConnect(); });
+    QAction* out = twm->addAction("Sign out");
+    out->setEnabled(idle && signedIn);
+    QObject::connect(out, &QAction::triggered, &menu, [p] { p->twitchSignOut(); });
+    twm->addSeparator();
+    twKeyInfo = twm->addAction(hasProfile && panel.twitchKeySet() ? "Stream key: set" : "Stream key: not set");
+    twKeyInfo->setEnabled(false);
+    QAction* fetch = twm->addAction("Fetch stream key");
+    fetch->setEnabled(idle && signedIn);
+    QObject::connect(fetch, &QAction::triggered, &menu, [p] { p->twitchFetchKey(); });
+    twm->addSeparator();
+    QAction* title = twm->addAction("Set title...");
+    title->setEnabled(signedIn && hasProfile);
+    QObject::connect(title, &QAction::triggered, &menu, [p] { p->twitchPromptTitle(); });
+    QAction* cat = twm->addAction("Set category...");
+    cat->setEnabled(signedIn && hasProfile);
+    QObject::connect(cat, &QAction::triggered, &menu, [p] { p->twitchPromptCategory(); });
+    QAction* applyLive = twm->addAction("Apply info when going live");
+    applyLive->setCheckable(true);
+    applyLive->setChecked(panel.twitchApplyOnLive());
+    applyLive->setEnabled(hasProfile);
+    applyLive->setProperty("keepOpen", true);
+    QObject::connect(applyLive, &QAction::triggered, &menu, [p](bool on) { p->setTwitchApplyOnLive(on); });
+    twm->addSeparator();
+    QAction* mgr = twm->addAction("Open stream manager");
+    mgr->setEnabled(hasProfile);
+    QObject::connect(mgr, &QAction::triggered, &menu, [p] { p->openStudio("twitch"); });
+    QAction* vp = twm->addAction("Open video producer");
+    vp->setEnabled(hasProfile);
+    QObject::connect(vp, &QAction::triggered, &menu, [p] { p->openVideoProducer(); });
+    twm->addSeparator();
+    twm->addAction("Destination channel:")->setEnabled(false);
+    auto* twGrp = new QActionGroup(twm);
+    const QString curCh = panel.activeChannelId();
+    for (const auto& ch : panel.channels()) {
+      if (ch.platform != "twitch") continue;
+      QString cid = QString::fromStdString(ch.id);
+      QAction* ca = twm->addAction(QString::fromStdString(ch.label));
+      ca->setCheckable(true);
+      ca->setChecked(cid == curCh);
+      ca->setEnabled(idle);
+      ca->setProperty("keepOpen", true);
+      twGrp->addAction(ca);
+      QObject::connect(ca, &QAction::triggered, &menu, [p, cid] { p->selectChannel(cid); });
+    }
   }
 
   // Audio devices
@@ -321,7 +408,7 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
     });
   });
 
-  auto* stayFilter = new MenuStayOpenFilter(&menu, [p, startStop, pause, ytInfo, ytClear, ytStudio, muteMic, muteSys] {
+  auto* stayFilter = new MenuStayOpenFilter(&menu, [p, startStop, pause, ytInfo, ytClear, ytStudio, muteMic, muteSys, shInfo, shCopyLive, shCopyVod, shOpenLive, shOpenVod, twKeyInfo] {
     const RS s = p->recState();
     const bool isStream = p->outputKind() == "stream";
     const bool keyOk = p->streamKeySet();
@@ -332,6 +419,14 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
     if (ytInfo) ytInfo->setText(keyOk ? "Stream key: set" : "Stream key: not set");
     if (ytClear) ytClear->setEnabled(s == RS::Idle && !p->starting() && keyOk);
     if (ytStudio) ytStudio->setToolTip(QString("Open YouTube Studio for %1").arg(p->activeChannelLabel()));
+    const QString live = p->liveLink();
+    const QString vod = p->vodLink();
+    if (shInfo) shInfo->setText("Live: " + (live.isEmpty() ? QString("not available") : live));
+    if (shCopyLive) shCopyLive->setEnabled(!live.isEmpty());
+    if (shOpenLive) shOpenLive->setEnabled(!live.isEmpty());
+    if (shCopyVod) shCopyVod->setEnabled(!vod.isEmpty());
+    if (shOpenVod) shOpenVod->setEnabled(!vod.isEmpty());
+    if (twKeyInfo) twKeyInfo->setText(p->twitchKeySet() ? "Stream key: set" : "Stream key: not set");
     if (muteMic) muteMic->setChecked(p->micMuted());
     if (muteSys) muteSys->setChecked(p->sysMuted());
   });

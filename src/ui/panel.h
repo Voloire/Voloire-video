@@ -70,7 +70,7 @@ class MainPanel : public QWidget {
   void selectChannel(const QString& id);
   void promptAddChannel();
   void deleteActiveChannel();
-  void openStudio();  // YouTube Studio or the Twitch stream manager, by the active channel's platform
+  void openStudio(const QString& platform = {});  // YouTube Studio or the Twitch stream manager; empty = the active channel's platform
   QString activeChannelPlatform() const;  // youtube | twitch
   bool setStreamKeyFor(const QString& channelId, const std::string& key);
 
@@ -78,6 +78,9 @@ class MainPanel : public QWidget {
   vv::json twitchStatus();                       // twitch_status: sign-in state and profile, never a token
   void twitchConnect();                          // browser sign-in: code dialog, verification page, poll until done
   void twitchSignOut();
+  bool twitchKeySet();                           // the Twitch profile has a stored stream key
+  bool twitchApplyOnLive() const;
+  void setTwitchApplyOnLive(bool on);
   void twitchFetchKey();                         // the stream key of the account, stored encrypted
   void twitchApplyInfo(std::function<void(bool)> done = nullptr);  // title, category, tags, language -> Twitch
   void twitchPromptTitle();

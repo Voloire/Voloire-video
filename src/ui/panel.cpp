@@ -454,7 +454,7 @@ void MainPanel::build() {
     });
     connect(addChBtn_, &QPushButton::clicked, this, &MainPanel::promptAddChannel);
     connect(openStreamTab, &QPushButton::clicked, this, [this] { if (tabs_) tabs_->setCurrentIndex(1); });
-    connect(studioBtn_, &QPushButton::clicked, this, &MainPanel::openStudio);
+    connect(studioBtn_, &QPushButton::clicked, this, [this] { openStudio(); });
     connect(keyClear_, &QPushButton::clicked, this, [this] { clearStreamKey(); });
     connect(localCopyCheck_, &QCheckBox::toggled, this, [this](bool on) {
       if (ytLocalCopyCheck_ && ytLocalCopyCheck_->isChecked() != on) {
@@ -610,7 +610,7 @@ void MainPanel::build() {
         if (setStreamKey(ytKeyEdit_->text().trimmed().toStdString())) ytKeyEdit_->clear();
       });
       connect(ytKeyClear_, &QPushButton::clicked, this, [this] { clearStreamKey(); });
-      connect(ytStudioBtn_, &QPushButton::clicked, this, &MainPanel::openStudio);
+      connect(ytStudioBtn_, &QPushButton::clicked, this, [this] { openStudio(); });
       connect(streamServerCombo_, &QComboBox::currentIndexChanged, this, [this] {
         if (loading_) return;
         QString u = streamServerCombo_->currentData().toString();
@@ -1165,18 +1165,25 @@ void MainPanel::deleteActiveChannel() {
   selectChannel(QString::fromStdString(prefs_->channels.front().id));
 }
 
-void MainPanel::openStudio() {
-  if (activeChannelPlatform() == "twitch") {
-    std::string cid = activeChannelId().toStdString();
-    for (const auto& c : channels())
-      if (c.id == cid && !c.studioUrl.empty()) { openExternal(QUrl(QString::fromStdString(c.studioUrl))); return; }
-    openExternal(QUrl("https://dashboard.twitch.tv/"));
+void MainPanel::openStudio(const QString& platform) {
+  const QString active = activeChannelPlatform();
+  const QString pf = platform.isEmpty() ? active : platform;
+  if (pf == "twitch") {
+    const auto* p = twitchProfile();
+    openExternal(QUrl(p && !p->studioUrl.empty() ? QString::fromStdString(p->studioUrl) : QString("https://dashboard.twitch.tv/")));
     return;
   }
-  QString raw = ytStudioUrlEdit_ ? ytStudioUrlEdit_->text().trimmed() : QString();
-  if (raw.isEmpty()) {
-    std::string cid = activeChannelId().toStdString();
-    for (const auto& c : channels()) if (c.id == cid) raw = QString::fromStdString(c.studioUrl).trimmed();
+  // YouTube: the Studio field of the active channel, or the first YouTube profile when a Twitch one is active.
+  QString raw;
+  if (active == "youtube") {
+    raw = ytStudioUrlEdit_ ? ytStudioUrlEdit_->text().trimmed() : QString();
+    if (raw.isEmpty()) {
+      std::string cid = activeChannelId().toStdString();
+      for (const auto& c : channels()) if (c.id == cid) raw = QString::fromStdString(c.studioUrl).trimmed();
+    }
+  } else {
+    for (const auto& c : channels())
+      if (c.platform != "twitch") { raw = QString::fromStdString(c.studioUrl).trimmed(); break; }
   }
   QString url = "https://studio.youtube.com/";
   if (raw.startsWith("http://") || raw.startsWith("https://")) {

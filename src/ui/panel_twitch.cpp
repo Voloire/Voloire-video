@@ -677,6 +677,28 @@ void MainPanel::twitchPromptCategory() {
            });
 }
 
+bool MainPanel::twitchKeySet() {
+  if (twitchChannelId().isEmpty()) return false;
+  return app_.handle({{"cmd", "get_config"}, {"channel", twitchChannelId().toStdString()}})
+      .value("config", vv::json::object()).value("streamKeySet", false);
+}
+
+bool MainPanel::twitchApplyOnLive() const {
+  const auto* p = twitchProfile();
+  return p ? p->applyInfoOnGoLive : true;
+}
+
+void MainPanel::setTwitchApplyOnLive(bool on) {
+  auto* p = twitchProfile();
+  if (!p) return;
+  p->applyInfoOnGoLive = on;
+  vv::saveUiPrefs(*prefs_);
+  if (twApplyOnLiveCheck_ && twApplyOnLiveCheck_->isChecked() != on) {
+    QSignalBlocker b(twApplyOnLiveCheck_);
+    twApplyOnLiveCheck_->setChecked(on);
+  }
+}
+
 void MainPanel::openVideoProducer() {
   if (const auto* p = twitchProfile())
     openExternal(QUrl("https://dashboard.twitch.tv/u/" + s2q(p->twitchLogin) + "/content/video-producer"));

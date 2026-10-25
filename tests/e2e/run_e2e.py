@@ -532,6 +532,20 @@ def sc_ui(out):
         rep.check("MIC menu lists default, devices, off", len(mic) >= 3 and mic[0]["text"] == "Default microphone" and mic[-1]["text"] == "Off", [m["text"] for m in mic])
         sysm = [m for m in s["menu"] if m.get("text") == "SYS"][0]["menu"]
         rep.check("SYS menu offers app audio, outputs, off", sysm[0]["text"].startswith("App audio") and sysm[-1]["text"] == "Off", [m["text"] for m in sysm])
+        twm = [m for m in s["menu"] if m.get("text") == "Twitch"]
+        tw_items = twm[0]["menu"] if twm else []
+        connect = next((m for m in tw_items if m.get("text") == "Connect Twitch account..."), {})
+        rep.check("Twitch menu before sign-in: Not connected first, Connect on, Sign out off, Fetch key off",
+                  bool(tw_items) and tw_items[0]["text"] == "Not connected" and connect.get("enabled") is True
+                  and next(m for m in tw_items if m.get("text") == "Sign out")["enabled"] is False
+                  and next(m for m in tw_items if m.get("text") == "Fetch stream key")["enabled"] is False,
+                  [m.get("text") for m in tw_items])
+        shm = [m for m in s["menu"] if m.get("text") == "Share link"]
+        sh_items = {m.get("text"): m for m in (shm[0]["menu"] if shm else [])}
+        rep.check("Share link menu with nothing to share: info line and four disabled entries",
+                  bool(shm) and shm[0]["menu"][0]["text"] == "Live: not available"
+                  and all(sh_items[k]["enabled"] is False for k in ("Copy live link", "Copy video link", "Open live page", "Open video page")),
+                  [m.get("text") for m in (shm[0]["menu"] if shm else [])])
 
         shots = c.call(cmd="ui_screenshot", dir=str(d / "shots"))
         rep.check("screenshots written", shots["ok"] and all(f["ok"] for f in shots["files"]), len(shots["files"]))
@@ -1435,6 +1449,33 @@ def sc_twitch_live(out):
         rep.check("ingests: urls stripped of the key placeholder",
                   [i["url"] for i in r.get("ingests", [])] == ["rtmp://live.twitch.tv/app", "rtmp://mil.contribute.live-video.net/app"], r)
 
+        tw_menu = next(m for m in ui()["menu"] if m.get("text") == "Twitch")["menu"]
+        rep.check("Twitch menu signed in: Signed in as voloire, Sign out on, Connect off, Fetch key on",
+                  tw_menu[0]["text"] == "Signed in as voloire"
+                  and next(m for m in tw_menu if m.get("text") == "Sign out")["enabled"] is True
+                  and next(m for m in tw_menu if m.get("text") == "Connect Twitch account...")["enabled"] is False
+                  and next(m for m in tw_menu if m.get("text") == "Fetch stream key")["enabled"] is True,
+                  [m.get("text") for m in tw_menu])
+        rep.check("Twitch menu: the key line says Stream key: set",
+                  any(m.get("text") == "Stream key: set" for m in tw_menu), [m.get("text") for m in tw_menu])
+        dest = next((m for m in tw_menu if m.get("text") == "voloire"), None)
+        rep.check("Twitch menu: the Twitch profile is listed and checked as the destination",
+                  dest is not None and dest.get("checked") is True, dest)
+        yt_menu = next(m for m in ui()["menu"] if m.get("text") == "YouTube")["menu"]
+        rep.check("YouTube menu lists only YouTube channels", not any(m.get("text") == "voloire" for m in yt_menu),
+                  [m.get("text") for m in yt_menu])
+        rep.check("menu: Twitch > voloire selects the destination", call(cmd="ui_trigger", path=["Twitch", "voloire"])["ok"])
+        rep.check("menu: Twitch > Apply info when going live switches it off",
+                  call(cmd="ui_trigger", path=["Twitch", "Apply info when going live"])["ok"])
+        ui_json = json.loads((settings / "ui.json").read_text(encoding="utf-8"))
+        rep.check("the switch is saved in the profile",
+                  next(x for x in ui_json["channels"] if x["id"] == "tw_123456")["applyInfoOnGoLive"] is False)
+        rep.check("menu: Apply info when going live back on",
+                  call(cmd="ui_trigger", path=["Twitch", "Apply info when going live"])["ok"])
+        ui_json = json.loads((settings / "ui.json").read_text(encoding="utf-8"))
+        rep.check("the switch is back on in the profile",
+                  next(x for x in ui_json["channels"] if x["id"] == "tw_123456")["applyInfoOnGoLive"] is True)
+
         # Broadcast info typed in the tab, applied to Twitch.
         call(cmd="ui_twitch_set", title="Late session", tags="gaming, chill", language="it",
              categoryId="509658", categoryName="Just Chatting")
@@ -1502,6 +1543,23 @@ def sc_twitch_live(out):
                   bool(lk) and lk["vodUrl"] == "https://www.twitch.tv/videos/41234567", lk)
         t = wait_for(lambda: (lambda x: x if x.get("vodLink") == "https://www.twitch.tv/videos/41234567" else None)(tw()), 5)
         rep.check("tab shows the VOD link", bool(t), tw().get("vodLink"))
+
+        sh = {m.get("text"): m for m in next(m for m in ui()["menu"] if m.get("text") == "Share link")["menu"]}
+        rep.check("Share link menu: Live line and all four entries enabled once the VOD is there",
+                  ui()["menu"] and next(iter(sh)) == "Live: https://www.twitch.tv/voloire"
+                  and all(sh[k]["enabled"] is True for k in ("Copy live link", "Copy video link", "Open live page", "Open video page")),
+                  list(sh))
+        rep.check("menu: Share link > Copy video link", call(cmd="ui_trigger", path=["Share link", "Copy video link"])["ok"])
+        rep.check("clipboard holds the VOD link", ui()["clipboardText"] == "https://www.twitch.tv/videos/41234567", ui()["clipboardText"])
+        rep.check("menu: Share link > Copy live link", call(cmd="ui_trigger", path=["Share link", "Copy live link"])["ok"])
+        rep.check("clipboard holds the live link", ui()["clipboardText"] == "https://www.twitch.tv/voloire", ui()["clipboardText"])
+        rep.check("menu: Share link > Open video page", call(cmd="ui_trigger", path=["Share link", "Open video page"])["ok"])
+        rep.check("the video page was handed to the browser", tw().get("openedUrl") == "https://www.twitch.tv/videos/41234567", tw().get("openedUrl"))
+        tw_live = next(m for m in ui()["menu"] if m.get("text") == "Twitch")["menu"]
+        rep.check("Twitch menu while live: Sign out and Fetch key are locked",
+                  next(m for m in tw_live if m.get("text") == "Sign out")["enabled"] is False
+                  and next(m for m in tw_live if m.get("text") == "Fetch stream key")["enabled"] is False,
+                  [(m.get("text"), m.get("enabled")) for m in tw_live])
 
         call(cmd="ui_tab", index=2)
         shots = call(cmd="ui_screenshot", dir=str(d / "shots"))
