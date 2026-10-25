@@ -76,7 +76,8 @@ QString fmtDuration(int64_t us) {
 
 }  // namespace
 
-MainPanel::MainPanel(vv::AppController& app, QWidget* parent) : QWidget(parent), app_(app) {
+MainPanel::MainPanel(vv::AppController& app, QWidget* parent, bool functionalOnly)
+    : QWidget(parent), app_(app), functionalOnly_(functionalOnly) {
   setObjectName("root");
   setAttribute(Qt::WA_StyledBackground, true);
   setMouseTracking(true);
@@ -97,7 +98,7 @@ MainPanel::MainPanel(vv::AppController& app, QWidget* parent) : QWidget(parent),
   pollTimer_->start(100);
   fgTimer_ = new QTimer(this);
   connect(fgTimer_, &QTimer::timeout, this, &MainPanel::trackForeground);
-  fgTimer_->start(400);
+  if (!functionalOnly_) fgTimer_->start(400);
 }
 
 MainPanel::~MainPanel() {
@@ -154,7 +155,7 @@ void MainPanel::build() {
     timerLabel_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     QFont f(monoFamily());
     f.setPixelSize(28);
-    f.setBold(true);
+    f.setWeight(QFont::Normal);
     timerLabel_->setFont(f);
     timerLabel_->setStyleSheet(QString("color:%1; font-size:28px; font-weight:700; font-family:'%2';").arg(col::dim.name(), monoFamily()));
     auto* stCol = new QVBoxLayout();
@@ -170,13 +171,34 @@ void MainPanel::build() {
     pauseBtn_ = new QPushButton("PAUSE", this);
     row->addWidget(timerLabel_);
     row->addLayout(stCol, 1);
-    row->addWidget(recBtn_);
     row->addWidget(pauseBtn_);
+    auto* destinationRow = new QHBoxLayout();
+    destinationRow->setSpacing(8);
+    destinationCombo_ = new QComboBox(this);
+    destinationCombo_->setObjectName("destination");
+    destinationCombo_->setAccessibleName("Broadcast destination");
+    destinationCombo_->setIconSize(QSize(24, 24));
+    destinationCombo_->setStyleSheet("font-size:13px; font-weight:400;");
+    destinationCombo_->setMinimumWidth(100);
+    recBtn_->setIconSize(QSize(20, 20));
+    recBtn_->setStyleSheet("font-size:12px; font-weight:400; padding:6px 10px;");
+    destinationRow->addWidget(destinationCombo_, 1);
+    destinationRow->addWidget(recBtn_);
+    connect(destinationCombo_, &QComboBox::currentIndexChanged, this, [this] {
+      if (loading_ || destinationCombo_->currentIndex() < 0 || recState() != RecState::Idle || starting_) return;
+      QString id = destinationCombo_->currentData().toString();
+      if (id.isEmpty()) setOutput("file");
+      else { selectChannel(id); setOutput("stream"); }
+    });
     errLabel_ = new QLabel("", this);
     errLabel_->setObjectName("err");
     errLabel_->setWordWrap(true);
     errLabel_->hide();
     box->addLayout(row);
+    auto* destinationLabel = new QLabel("DESTINATION", this);
+    destinationLabel->setObjectName("sub");
+    box->addWidget(destinationLabel);
+    box->addLayout(destinationRow);
     box->addWidget(errLabel_);
     topWrap->addWidget(makeCard("RECORDER", box, this));
     connect(recBtn_, &QPushButton::clicked, this, [this] {
@@ -810,6 +832,8 @@ void MainPanel::build() {
     ytBody->addStretch(1);
   }
   buildTwitchTab();
+  tabs_->setTabIcon(1, destinationIcon("youtube"));
+  tabs_->setTabIcon(2, destinationIcon("twitch"));
   for (auto* c : findChildren<QComboBox*>()) {
     c->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     c->setMinimumContentsLength(6);
@@ -871,6 +895,7 @@ void MainPanel::build() {
 }
 
 void MainPanel::refreshSources() {
+  if (functionalOnly_) return;
   loading_ = true;
   qint64 keepWin = selectedHwnd();
   QString keepSys = sysKey(), keepMic = micKey();
@@ -981,6 +1006,7 @@ void MainPanel::persist() {
   vv::RecordConfig c = currentConfig();
   app_.setConfig(c);
   vv::saveSettings(c);
+  refreshDestination();
   emit changed();
 }
 
@@ -1008,6 +1034,31 @@ void MainPanel::setQuality(const QString& v) { int i = qualityCombo_->findData(v
 void MainPanel::setOutput(const QString& v) { int i = outputCombo_->findData(v); if (i >= 0) outputCombo_->setCurrentIndex(i); }
 QString MainPanel::outputKind() const { return outputCombo_ ? outputCombo_->currentData().toString() : QString("file"); }
 
+Destination MainPanel::destination() const {
+  return destinationFor(outputKind().toStdString(), activeChannelId().toStdString(), channels());
+}
+
+vv::json MainPanel::destinationState() const {
+  const auto d = destination();
+  return {{"platform", d.platform.toStdString()}, {"channel", d.channel.toStdString()},
+          {"caption", d.caption().toStdString()}, {"button", recBtn_->text().toStdString()},
+          {"icon", d.platform.toStdString()}, {"enabled", destinationCombo_->isEnabled()}};
+}
+
+void MainPanel::refreshDestination() {
+  if (!destinationCombo_) return;
+  QSignalBlocker block(destinationCombo_);
+  destinationCombo_->clear();
+  destinationCombo_->addItem(destinationIcon("local"), "LOCAL RECORDING", QString());
+  for (const auto& c : channels()) {
+    const auto d = destinationFor("stream", c.id, {c});
+    destinationCombo_->addItem(destinationIcon(d.platform), d.caption(), QString::fromStdString(c.id));
+  }
+  int index = outputKind() == "stream" ? destinationCombo_->findData(activeChannelId()) : 0;
+  destinationCombo_->setCurrentIndex(index);
+  destinationCombo_->setToolTip("Actual destination: " + destination().caption() + ". Changing tabs does not change it.");
+}
+
 // The stream key lives in the controller (DPAPI blob under the settings dir): the panel, the
 // menu and the HUD only ever learn whether one is set.
 bool MainPanel::streamKeySet() {
@@ -1017,6 +1068,7 @@ bool MainPanel::streamKeySet() {
 
 void MainPanel::syncKeyUi() {
   const bool set = streamKeySet();
+  hasStreamKey_ = set;
   const QString chLbl = activeChannelLabel();
   if (keyStateLabel_) keyStateLabel_->setText(set ? QString("KEY: SET (%1)").arg(chLbl) : QString("KEY: NOT SET (%1)").arg(chLbl));
   if (ytKeyStateLabel_) ytKeyStateLabel_->setText(set ? QString("Stream key: SET for '%1'").arg(chLbl) : QString("Stream key: NOT SET for '%1'").arg(chLbl));
@@ -1118,6 +1170,7 @@ void MainPanel::refreshChannelCombos() {
       break;
     }
   }
+  refreshDestination();
 }
 
 void MainPanel::selectChannel(const QString& id) {
@@ -1244,6 +1297,7 @@ void MainPanel::stopIdleAudio() {
 }
 
 void MainPanel::pollIdleAudio() {
+  if (functionalOnly_) return;
   if (!isVisible() || recState() != RecState::Idle || starting_) {
     stopIdleAudio();
     return;
@@ -1343,6 +1397,8 @@ void MainPanel::setDarkMode(bool dark) {
   }
   if (themeBtn_) themeBtn_->setText(dark ? "THEME: DARK" : "THEME: LIGHT");
   if (qApp) qApp->setStyleSheet(vv::ui::styleSheet(dark));
+  refreshDestination();
+  if (recBtn_) recBtn_->setProperty("destinationPlatform", QString());
   update();
 }
 
@@ -1438,6 +1494,7 @@ void MainPanel::showError(const QString& m) {
 }
 
 void MainPanel::startRecording() {
+  if (functionalOnly_) { showError("Capture is disabled in functional UI tests."); return; }
   if (recState() != RecState::Idle || starting_) return;
   stopIdleAudio();
   if (startTh_.joinable()) startTh_.join();
@@ -1515,8 +1572,14 @@ void MainPanel::poll() {
                                           : QString(vv::stateName(s)).toUpper());
   stateLabel_->setText(st);
   infoLabel_->setText(infoText());
-  recBtn_->setText(s == RecState::Idle ? (isStream ? QString("GO LIVE (%1)").arg(activeChannelLabel().left(14)) : QString("REC"))
-                                       : (isStream ? QString("END STREAM") : QString("STOP")));
+  const auto dest = destination();
+  recBtn_->setText(dest.actionText(s != RecState::Idle));
+  if (recBtn_->property("destinationPlatform").toString() != dest.platform) {
+    recBtn_->setIcon(destinationIcon(dest.platform));
+    recBtn_->setProperty("destinationPlatform", dest.platform);
+  }
+  recBtn_->setToolTip(dest.actionText(s != RecState::Idle, true) + ": " + dest.caption());
+  recBtn_->setEnabled(!starting_ && (s != RecState::Idle || !isStream || (hasStreamKey_ && dest.platform != "unknown")));
   recBtn_->setProperty("active", s != RecState::Idle);
   recBtn_->style()->unpolish(recBtn_);
   recBtn_->style()->polish(recBtn_);
@@ -1524,7 +1587,7 @@ void MainPanel::poll() {
   pauseBtn_->setText(s == RecState::Paused ? "RESUME" : "PAUSE");
   const QString idleCol = isDarkTheme() ? hud::muted.name() : col::dim.name();
   const QString actCol = isDarkTheme() ? hud::tint.name() : col::text.name();
-  timerLabel_->setStyleSheet(QString("color:%1; font-size:28px; font-weight:700; font-family:'%2';")
+  timerLabel_->setStyleSheet(QString("color:%1; font-size:28px; font-weight:400; font-family:'%2';")
                                  .arg(s == RecState::Paused ? col::paused.name() : s == RecState::Idle ? idleCol : actCol, monoFamily()));
 
   auto m = vv::Telemetry::get().snapshot();
@@ -1554,6 +1617,7 @@ void MainPanel::poll() {
   if (nowMs - lastLinksMs_ >= 1000) { lastLinksMs_ = nowMs; refreshShareLinks(); }
   if (nowMs - lastTwSyncMs_ >= 2000) { lastTwSyncMs_ = nowMs; syncTwitchUi(); }
   const bool canEdit = s == RecState::Idle && !starting_;
+  destinationCombo_->setEnabled(canEdit);
   for (QWidget* w : std::initializer_list<QWidget*>{sysCombo_, micCombo_, containerCombo_, codecCombo_, encoderCombo_, resCombo_, fpsCombo_, qualityCombo_, shareCombo_, winCombo_, monCombo_, outputCombo_, channelCombo_, addChBtn_, streamKbps_, urlEdit_, keyEdit_, keySave_, localCopyCheck_, ytChannelCombo_, ytAddChBtn_, ytChannelLabelEdit_, ytStudioUrlEdit_, ytOutputCombo_, ytLocalCopyCheck_, streamServerCombo_, streamPresetCombo_, streamResCombo_, ytFpsCombo_, ytEncoderCombo_, ytSysCombo_, ytMicCombo_, ytKbps_, ytUrlEdit_, ytKeyEdit_, ytKeySave_})
     if (w) w->setEnabled(canEdit);
   applyTwitchEnabled(canEdit);

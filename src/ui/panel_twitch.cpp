@@ -360,7 +360,9 @@ void MainPanel::buildTwitchTab() {
     for (const char* l : {"it", "en", "es", "fr", "de", "pt", "other"}) twLangCombo_->addItem(QString(l).toUpper(), l);
     twLoadInfoBtn_ = new QPushButton("LOAD FROM TWITCH", this);
     twApplyBtn_ = new QPushButton("APPLY", this);
-    twGoLiveBtn_ = new QPushButton("APPLY && GO LIVE", this);
+    twGoLiveBtn_ = new QPushButton("GO LIVE ON TWITCH", this);
+    twGoLiveBtn_->setIcon(destinationIcon("twitch"));
+    twGoLiveBtn_->setToolTip("Apply broadcast info, select Twitch and go live on Twitch");
     twApplyOnLiveCheck_ = new QCheckBox("Apply this info when going live", this);
     twApplyOnLiveCheck_->setChecked(true);
     twInfoStatusLabel_ = new QLabel("", this);

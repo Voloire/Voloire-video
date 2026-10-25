@@ -49,12 +49,8 @@ std::string HudBar::dotName() const {
 }
 
 QString HudBar::displayText() const {
-  QString t = label_ + "  " + panel_->timerText();
+  QString t = label_ + " | " + panel_->destination().caption() + "  " + panel_->timerText();
   if (!kbps_.isEmpty()) t += "  " + kbps_;
-  if (panel_->outputKind() == "stream") {
-    QString ch = panel_->activeChannelLabel();
-    if (!ch.isEmpty()) t += "  [" + ch + "]";
-  }
   if (panel_->micMuted()) t += "  [MIC OFF]";
   return t;
 }
@@ -71,16 +67,24 @@ void HudBar::refreshContent() {
     kbps = QString("%1M").arg(st.value("kbps", 0.0) / 1000.0, 0, 'f', 1);
   } else {
     label = QString(vv::stateName(panel_->recState())).toUpper();
+    if (panel_->starting()) label = "STARTING";
     if (panel_->recState() == vv::RecState::Idle && !panel_->errorText().isEmpty()) label = "ERROR";
   }
   label_ = label;
   kbps_ = kbps;
   QFont f(monoFamily());
-  f.setPixelSize(12);
-  int w = std::max(160, QFontMetrics(f).horizontalAdvance(displayText()) + 44);
-  if (width() != w || height() != 28) setFixedSize(w, 28);
-  setToolTip(panel_->errorText().isEmpty() ? QString("Voloire-video | %1 | %2").arg(label_, panel_->timerText())
-                                           : panel_->errorText());
+  f.setPixelSize(13);
+  f.setWeight(QFont::Normal);
+  QScreen* screen = QGuiApplication::screenAt(frameGeometry().center());
+  if (!screen) screen = QGuiApplication::primaryScreen();
+  const QRect available = screen ? screen->availableGeometry() : QRect(0, 0, 1920, 1080);
+  int w = std::min(available.width(), std::max(260, QFontMetrics(f).horizontalAdvance(displayText()) + 72));
+  if (width() != w || height() != 36) {
+    setFixedSize(w, 36);
+    if (isVisible()) move(std::clamp(x(), available.left(), available.right() - w + 1), y());
+  }
+  setAccessibleName(displayText());
+  setToolTip("Voloire-video | " + displayText() + (panel_->errorText().isEmpty() ? QString() : " | " + panel_->errorText()));
   update();
 }
 
@@ -111,12 +115,15 @@ void HudBar::paintEvent(QPaintEvent*) {
   p.drawEllipse(QPointF(r.left() + 14, r.center().y()), 4.5, 4.5);
 
   if (!label_.isEmpty()) {
+    const QString platform = panel_->destination().platform;
+    p.drawPixmap(QRect(27, 6, 24, 24), destinationPixmap(platform, 24, devicePixelRatioF()));
     QFont f(monoFamily());
-    f.setPixelSize(12);
+    f.setPixelSize(13);
+    f.setWeight(QFont::Normal);
     p.setFont(f);
     p.setPen(hud::tint);
-    p.drawText(QRectF(r.left() + 24, r.top(), r.width() - 30, r.height()), Qt::AlignVCenter | Qt::AlignLeft,
-               displayText());
+    p.drawText(QRectF(r.left() + 60, r.top(), r.width() - 68, r.height()), Qt::AlignVCenter | Qt::AlignLeft,
+               QFontMetrics(f).elidedText(displayText(), Qt::ElideRight, width() - 68));
   }
 }
 
@@ -248,6 +255,10 @@ vv::json HudBar::state() const {
           {"w", (int)(r.right - r.left)},
           {"h", (int)(r.bottom - r.top)},
           {"label", label_.toStdString()},
+          {"text", displayText().toStdString()},
+          {"destination", panel_->destination().caption().toStdString()},
+          {"platform", panel_->destination().platform.toStdString()},
+          {"icon", panel_->destination().platform.toStdString()},
           {"kbps", kbps_.toStdString()},
           {"timer", panel_->timerText().toStdString()},
           {"dot", dotName()},

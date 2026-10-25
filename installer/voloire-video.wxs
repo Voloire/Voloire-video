@@ -16,6 +16,11 @@
     <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/Voloire/Voloire-video" />
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <!-- Opt-in on first install: msiexec /i ... AUTOSTART=1. Preserve it on upgrades. -->
+    <Property Id="AUTOSTART" Secure="yes">
+      <RegistrySearch Id="ExistingAutostart" Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                      Name="Voloire-video" Type="raw" />
+    </Property>
     <WixVariable Id="WixUILicenseRtf" Value="$(var.RepoDir)\installer\license.rtf" />
     <UIRef Id="WixUI_InstallDir" />
 
@@ -39,9 +44,18 @@
       </Component>
     </DirectoryRef>
 
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="StartAtLogon" Guid="5B5CFF8C-87DD-4D50-A92F-F1E832289826">
+        <Condition>AUTOSTART</Condition>
+        <RegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                       Name="Voloire-video" Type="string" Value="&quot;[INSTALLFOLDER]voloire-video.exe&quot; --minimized" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
     <Feature Id="Main" Title="Voloire-video" Level="1" ConfigurableDirectory="INSTALLFOLDER" Absent="disallow">
       <ComponentGroupRef Id="AppFiles" />
       <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="StartAtLogon" />
     </Feature>
   </Product>
 </Wix>
