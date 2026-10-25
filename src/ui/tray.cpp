@@ -140,6 +140,7 @@ vv::json TrayController::state() {
           {"links", panel_->shareLinks()},
           {"twitch", panel_->twitchStatus()},
           {"twitchUi", panel_->twitchUiState()},
+          {"youtubeUi", panel_->youtubeUiState()},
           {"menu", dumpMenu(&menu_)}};
 }
 

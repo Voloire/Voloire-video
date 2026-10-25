@@ -190,6 +190,7 @@ void MainPanel::refreshShareLinks() {
     w.openVod->setEnabled(!vod.isEmpty());
   };
   fill(twShare_, "twitch");
+  fill(ytShare_, "youtube");
 }
 
 // ---------------------------------------------------------------- the tab
@@ -722,6 +723,10 @@ vv::json MainPanel::twitchUiState() const {
           {"vodLink", twShare_.vod->text().toStdString()},
           {"authDialog", twAuthBox_ ? twAuthBox_->text().toStdString() : std::string()},
           {"openedUrl", lastOpenedUrl().toStdString()}};
+}
+
+vv::json MainPanel::youtubeUiState() const {
+  return {{"liveLink", ytShare_.live->text().toStdString()}, {"vodLink", ytShare_.vod->text().toStdString()}};
 }
 
 void MainPanel::uiTwitchConnect(const QString& clientId) {

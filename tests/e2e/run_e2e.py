@@ -1358,6 +1358,28 @@ def sc_youtube_links(out):
 
         rep.check("status embeds the same links", call(cmd="status")["links"]["vodUrl"] == "https://youtu.be/dQw4w9WgXcQ")
 
+        live_url = f"{fake.base}/yt/channel/{YT_FAKE_CHANNEL}/live"
+        rep.check("YouTube tab shows the live link",
+                  wait_for(lambda: call(cmd="ui_state")["youtubeUi"]["liveLink"] == live_url, 5), call(cmd="ui_state")["youtubeUi"])
+        rep.check("YouTube tab shows the watch link",
+                  wait_for(lambda: call(cmd="ui_state")["youtubeUi"]["vodLink"] == "https://youtu.be/dQw4w9WgXcQ", 5),
+                  call(cmd="ui_state")["youtubeUi"])
+        sh = next(m for m in call(cmd="ui_state")["menu"] if m.get("text") == "Share link")["menu"]
+        rep.check("Share link menu carries the live line and enabled entries",
+                  sh[0]["text"] == "Live: " + live_url and all(m["enabled"] for m in sh[1:]), [(m.get("text"), m.get("enabled")) for m in sh])
+        rep.check("menu: Share link > Copy live link", call(cmd="ui_trigger", path=["Share link", "Copy live link"])["ok"])
+        rep.check("clipboard holds the YouTube live link", call(cmd="ui_state")["clipboardText"] == live_url,
+                  call(cmd="ui_state")["clipboardText"])
+        rep.check("menu: Share link > Copy video link", call(cmd="ui_trigger", path=["Share link", "Copy video link"])["ok"])
+        rep.check("clipboard holds the watch link", call(cmd="ui_state")["clipboardText"] == "https://youtu.be/dQw4w9WgXcQ",
+                  call(cmd="ui_state")["clipboardText"])
+        call(cmd="ui_tab", index=1)
+        shots = call(cmd="ui_screenshot", dir=str(d / "shots"))
+        pngs = {Path(f["file"]).name: f for f in shots.get("files", [])}
+        rep.check("screenshot of the YouTube tab is a real image",
+                  "panel_stream.png" in pngs and pngs["panel_stream.png"]["ok"] and pngs["panel_stream.png"]["w"] > 300,
+                  pngs.get("panel_stream.png"))
+
         rep.check("menu: End stream", call(cmd="ui_trigger", path=["End stream"], surface="hud")["ok"])
         rep.check("back to idle", wait_for(lambda: call(cmd="ui_state")["state"] == "idle", 20))
         lk = call(cmd="links")["links"]
@@ -1367,6 +1389,38 @@ def sc_youtube_links(out):
         ing.stop()
         hits = scan_for_secrets([d / "telemetry", d / "settings", *dumps], [key])
         rep.check("no key leak in the dumps, the settings or the telemetry", not hits, hits)
+
+        # A YouTube profile that only has the generic Studio URL: no channel id, no link to build.
+        gui.close()
+        n = d / "noid"
+        (n / "settings").mkdir(parents=True, exist_ok=True)
+        ing2 = RtmpIngest(n / "ing", key=key)
+        ing2.start()
+        (n / "settings" / "ui.json").write_text(json.dumps({"channels": [
+            {"id": "default", "label": "Main Channel", "platform": "youtube", "studioUrl": "https://studio.youtube.com/",
+             "streamUrl": ing2.url}]}), encoding="utf-8")
+        gui = Gui(n, "vv-e2e-yt-links-noid", env_extra=fake.env)
+        call(cmd="ui_override", config={"outDir": str(n / "rec"), "name": "noid", "mic": "none", "sys": "none",
+                                        "fps": 30, "streamUrl": ing2.url, "telemetryDir": str(n / "telemetry")})
+        src = [m for m in call(cmd="ui_state")["menu"] if m.get("text") == "Source"][0]["menu"]
+        item = [m["text"] for m in src if "VV TestSubject Links" in m.get("text", "")][0]
+        call(cmd="ui_trigger", path=["Source", item], surface="hud")
+        call(cmd="ui_trigger", path=["Output", "Stream (live)"], surface="hud")
+        call(cmd="set_stream_key", key=key)
+        rep.check("no channel id: Go live works", call(cmd="ui_trigger", path=["Go live"], surface="hud")["ok"])
+        rep.check("no channel id: recording", wait_for(lambda: call(cmd="ui_state")["state"] == "recording", 20))
+        lk = call(cmd="links")["links"]
+        rep.check("no channel id: nothing to poll, the hint says what to set",
+                  lk["state"] == "ended" and lk["liveUrl"] == "" and "channel ID" in lk["error"], lk)
+        sh = next(m for m in call(cmd="ui_state")["menu"] if m.get("text") == "Share link")["menu"]
+        rep.check("no channel id: Share link menu reads Live: not available, entries off",
+                  sh[0]["text"] == "Live: not available" and not any(m["enabled"] for m in sh[1:]),
+                  [(m.get("text"), m.get("enabled")) for m in sh])
+        yui = wait_for(lambda: (lambda x: x if "channel ID" in x["liveLink"] else None)(call(cmd="ui_state")["youtubeUi"]), 5)
+        rep.check("no channel id: the YouTube tab shows the hint", bool(yui), call(cmd="ui_state")["youtubeUi"])
+        rep.check("no channel id: End stream", call(cmd="ui_trigger", path=["End stream"], surface="hud")["ok"])
+        rep.check("no channel id: back to idle", wait_for(lambda: call(cmd="ui_state")["state"] == "idle", 20))
+        ing2.stop()
     finally:
         gui.close()
         subj.stop()

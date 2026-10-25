@@ -509,7 +509,7 @@ void MainPanel::build() {
       ytChannelLabelEdit_ = new QLineEdit(this);
       ytChannelLabelEdit_->setPlaceholderText("e.g. Main Channel, Gaming, Clips");
       ytStudioUrlEdit_ = new QLineEdit(this);
-      ytStudioUrlEdit_->setPlaceholderText("UC... or https://studio.youtube.com/channel/...");
+      ytStudioUrlEdit_->setPlaceholderText("UC... or https://studio.youtube.com/channel/... (needed for the share link)");
 
       ytOutputCombo_ = new QComboBox(this);
       ytOutputCombo_->addItem("Record to file", "file");
@@ -804,6 +804,8 @@ void MainPanel::build() {
         }
       });
     }
+    // Card 4: share links (the live page at once, the watch page when YouTube has it)
+    ytBody->addWidget(makeCard("SHARE", buildShareGrid(ytShare_, "youtube"), this));
     ytBody->addStretch(1);
   }
   buildTwitchTab();

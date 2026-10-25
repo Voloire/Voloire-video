@@ -88,6 +88,7 @@ class MainPanel : public QWidget {
   void openVideoProducer();
   void onPrefsReloaded();                        // ui.json was rewritten by the controller
   vv::json twitchUiState() const;                // what the Twitch tab shows, for the tests
+  vv::json youtubeUiState() const;               // the share links the YouTube tab shows
   void uiTwitchConnect(const QString& clientId);
   void uiTwitchSet(const vv::json& fields);
 
@@ -225,7 +226,7 @@ class MainPanel : public QWidget {
   QComboBox *twIngestCombo_ = nullptr, *twCategoryCombo_ = nullptr, *twLangCombo_ = nullptr;
   QLabel *twStatusLabel_ = nullptr, *twKeyStateLabel_ = nullptr, *twTitleCount_ = nullptr, *twInfoStatusLabel_ = nullptr;
   QCheckBox *twApplyOnLiveCheck_ = nullptr, *twLocalCopyCheck_ = nullptr;
-  ShareWidgets twShare_;
+  ShareWidgets twShare_, ytShare_;
   QTimer* twAuthTimer_ = nullptr;
   QPointer<QMessageBox> twAuthBox_;
   bool twSigned_ = false, twHasProfile_ = false;
