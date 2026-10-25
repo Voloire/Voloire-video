@@ -35,7 +35,7 @@ struct RecordConfig {
   std::string streamChannel = "default";  // selected YouTube channel profile id
   std::string streamUrl = "rtmp://a.rtmp.youtube.com/live2";  // ingest base, YouTube by default
   int streamBitrateKbps = 6000;  // 1000..51000
-  int streamHeight = 1080;       // 0 keeps the source size
+  int streamHeight = 1080;       // named height selects a 16:9 canvas; 0 keeps native source size
   bool recordWhileStreaming = false;  // save a local .mkv copy alongside the RTMP stream
 
   // Audio mix & mute (applied to both recording and streaming)

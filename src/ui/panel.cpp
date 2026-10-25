@@ -33,6 +33,7 @@
 #include "secrets.h"
 #include "telemetry.h"
 #include "theme.h"
+#include "video_layout.h"
 
 namespace vv::ui {
 
@@ -199,6 +200,11 @@ void MainPanel::build() {
     destinationLabel->setObjectName("sub");
     box->addWidget(destinationLabel);
     box->addLayout(destinationRow);
+    streamSummaryLabel_ = new QLabel(this);
+    streamSummaryLabel_->setObjectName("streamSummary");
+    streamSummaryLabel_->setStyleSheet("font-size:12px; font-weight:400;");
+    streamSummaryLabel_->setWordWrap(true);
+    box->addWidget(streamSummaryLabel_);
     box->addWidget(errLabel_);
     topWrap->addWidget(makeCard("RECORDER", box, this));
     connect(recBtn_, &QPushButton::clicked, this, [this] {
@@ -442,6 +448,7 @@ void MainPanel::build() {
     urlEdit_ = new QLineEdit(this);
     urlEdit_->setPlaceholderText("rtmp://a.rtmp.youtube.com/live2");
     streamKbps_ = new QSpinBox(this);
+    streamKbps_->setObjectName("streamBitrate");
     streamKbps_->setRange(1000, 51000);
     streamKbps_->setSingleStep(1000);
     streamKbps_->setSuffix(" kbps");
@@ -675,9 +682,10 @@ void MainPanel::build() {
       streamPresetCombo_->addItem("Custom", "custom");
 
       streamResCombo_ = new QComboBox(this);
+      streamResCombo_->setObjectName("streamResolution");
       streamResCombo_->addItem("Source size (native / ultrawide)", 0);
       streamResCombo_->addItem("2160p (4K)", 2160);
-      streamResCombo_->addItem("1440p (2K / VP9)", 1440);
+      streamResCombo_->addItem("1440p (2560 x 1440)", 1440);
       streamResCombo_->addItem("1080p (Full HD)", 1080);
       streamResCombo_->addItem("720p (HD)", 720);
       streamResCombo_->addItem("480p", 480);
@@ -1003,6 +1011,7 @@ vv::RecordConfig MainPanel::currentConfig() const {
 
 void MainPanel::persist() {
   if (loading_) return;
+  syncStreamEncodingControls();
   vv::RecordConfig c = currentConfig();
   app_.setConfig(c);
   vv::saveSettings(c);
@@ -1026,7 +1035,38 @@ void MainPanel::setVideoSource(const QString& kind, int monitor) {
 
 void MainPanel::setContainer(const QString& v) { int i = containerCombo_->findData(v); if (i >= 0) containerCombo_->setCurrentIndex(i); }
 void MainPanel::setCodec(const QString& v) { int i = codecCombo_->findData(v); if (i >= 0) codecCombo_->setCurrentIndex(i); }
-void MainPanel::setHeight(int h) { int i = resCombo_->findData(h); if (i >= 0) resCombo_->setCurrentIndex(i); }
+void MainPanel::setHeight(int h) {
+  if (outputKind() == "stream") { setStreamHeight(h); return; }
+  int i = resCombo_->findData(h);
+  if (i >= 0) resCombo_->setCurrentIndex(i);
+}
+void MainPanel::setStreamHeight(int h) {
+  int i = streamResCombo_->findData(h);
+  if (i >= 0) streamResCombo_->setCurrentIndex(i);
+}
+
+void MainPanel::syncStreamEncodingControls() {
+  if (!twStreamResCombo_) return;
+  QSignalBlocker a(twStreamResCombo_), b(twFpsCombo_), c(twBitrate_), d(streamKbps_), e(ytKbps_);
+  const int maximum = activeChannelPlatform() == "twitch" ? 6000 : 51000;
+  streamKbps_->setMaximum(maximum);
+  ytKbps_->setMaximum(maximum);
+  twStreamResCombo_->setCurrentIndex(twStreamResCombo_->findData(streamResCombo_->currentData()));
+  twFpsCombo_->setCurrentIndex(twFpsCombo_->findData(fpsCombo_->currentData()));
+  twBitrate_->setValue(streamKbps_->value());
+  ytKbps_->setValue(streamKbps_->value());
+}
+
+QString MainPanel::encodingSummary() const {
+  if (outputKind() != "stream") return {};
+  auto c = currentConfig();
+  QString size = "NATIVE SIZE";
+  if (c.streamHeight > 0) {
+    auto canvas = vv::streamCanvas(0, 0, c.streamHeight);
+    size = QString("%1x%2").arg(canvas.width).arg(canvas.height);
+  }
+  return QString("%1 | %2 FPS | %3 kbps | H.264").arg(size).arg(c.fps).arg(c.streamBitrateKbps);
+}
 void MainPanel::setFps(int f) { int i = fpsCombo_->findData(f); if (i >= 0) fpsCombo_->setCurrentIndex(i); }
 void MainPanel::setMic(const QString& mode, const QString& id) { int i = micCombo_->findData(mode + "|" + id); if (i >= 0) micCombo_->setCurrentIndex(i); }
 void MainPanel::setSys(const QString& mode, const QString& id) { int i = sysCombo_->findData(mode + "|" + id); if (i >= 0) sysCombo_->setCurrentIndex(i); }
@@ -1183,6 +1223,7 @@ void MainPanel::selectChannel(const QString& id) {
   }
   refreshChannelCombos();
   syncKeyUi();
+  syncStreamEncodingControls();
   persist();
 }
 
@@ -1572,6 +1613,8 @@ void MainPanel::poll() {
                                           : QString(vv::stateName(s)).toUpper());
   stateLabel_->setText(st);
   infoLabel_->setText(infoText());
+  streamSummaryLabel_->setText(encodingSummary());
+  streamSummaryLabel_->setVisible(isStream);
   const auto dest = destination();
   recBtn_->setText(dest.actionText(s != RecState::Idle));
   if (recBtn_->property("destinationPlatform").toString() != dest.platform) {
@@ -1618,6 +1661,8 @@ void MainPanel::poll() {
   if (nowMs - lastTwSyncMs_ >= 2000) { lastTwSyncMs_ = nowMs; syncTwitchUi(); }
   const bool canEdit = s == RecState::Idle && !starting_;
   destinationCombo_->setEnabled(canEdit);
+  for (QWidget* w : std::initializer_list<QWidget*>{twStreamResCombo_, twFpsCombo_, twBitrate_})
+    if (w) w->setEnabled(canEdit);
   for (QWidget* w : std::initializer_list<QWidget*>{sysCombo_, micCombo_, containerCombo_, codecCombo_, encoderCombo_, resCombo_, fpsCombo_, qualityCombo_, shareCombo_, winCombo_, monCombo_, outputCombo_, channelCombo_, addChBtn_, streamKbps_, urlEdit_, keyEdit_, keySave_, localCopyCheck_, ytChannelCombo_, ytAddChBtn_, ytChannelLabelEdit_, ytStudioUrlEdit_, ytOutputCombo_, ytLocalCopyCheck_, streamServerCombo_, streamPresetCombo_, streamResCombo_, ytFpsCombo_, ytEncoderCombo_, ytSysCombo_, ytMicCombo_, ytKbps_, ytUrlEdit_, ytKeyEdit_, ytKeySave_})
     if (w) w->setEnabled(canEdit);
   applyTwitchEnabled(canEdit);

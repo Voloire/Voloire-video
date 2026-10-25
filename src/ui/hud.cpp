@@ -50,6 +50,7 @@ std::string HudBar::dotName() const {
 
 QString HudBar::displayText() const {
   QString t = label_ + " | " + panel_->destination().caption() + "  " + panel_->timerText();
+  if (panel_->outputKind() == "stream") t += " | " + panel_->encodingSummary();
   if (!kbps_.isEmpty()) t += "  " + kbps_;
   if (panel_->micMuted()) t += "  [MIC OFF]";
   return t;

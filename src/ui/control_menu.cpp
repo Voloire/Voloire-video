@@ -93,6 +93,9 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
   auto* destinationInfo = menu.addAction(destinationIcon(panel.destination().platform),
                                          "Destination: " + panel.destination().caption());
   destinationInfo->setEnabled(false);
+  auto* encodingInfo = menu.addAction(panel.encodingSummary());
+  encodingInfo->setEnabled(false);
+  encodingInfo->setVisible(stream);
   QAction* startStop = menu.addAction(destinationIcon(panel.destination().platform),
                                       panel.destination().actionText(st != RS::Idle, true));
   // Going live needs a stored key: without one the entry stays disabled.
@@ -153,6 +156,8 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
 
   // Format
   QMenu* fmt = menu.addMenu("Format");
+  QMenu* resolutionMenu = nullptr;
+  QMenu* codecMenu = nullptr;
   fmt->setEnabled(idle);
   {
     QMenu* cont = fmt->addMenu("Container");
@@ -162,16 +167,24 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
       g1->addAction(radio(cont, tv.first, c.container == tv.second, [p, v] { p->setContainer(v); }));
     }
     QMenu* codec = fmt->addMenu("Codec");
+    codecMenu = codec;
+    codec->setEnabled(!stream);  // streaming always sends H.264, regardless of recording codec
     auto* g2 = new QActionGroup(codec);
     for (auto tv : {std::pair{"H.264", "h264"}, std::pair{"HEVC (H.265)", "hevc"}, std::pair{"AV1", "av1"}}) {
       QString v = tv.second;
       g2->addAction(radio(codec, tv.first, c.codec == tv.second, [p, v] { p->setCodec(v); }));
     }
     QMenu* res = fmt->addMenu("Resolution");
+    resolutionMenu = res;
     auto* g3 = new QActionGroup(res);
-    g3->addAction(radio(res, "Source size", c.outHeight == 0, [p] { p->setHeight(0); }));
-    for (int h : {2160, 1440, 1080, 720, 480})
-      g3->addAction(radio(res, QString("%1p").arg(h), c.outHeight == h, [p, h] { p->setHeight(h); }));
+    const int height = stream ? c.streamHeight : c.outHeight;
+    auto addResolution = [&](const QString& text, int h) {
+      auto* a = radio(res, text, height == h, [p, h] { p->setHeight(h); });
+      a->setProperty("resolutionHeight", h);
+      g3->addAction(a);
+    };
+    addResolution("Source size", 0);
+    for (int h : {2160, 1440, 1080, 720, 480}) addResolution(QString("%1p").arg(h), h);
     QMenu* fps = fmt->addMenu("Frame rate");
     auto* g4 = new QActionGroup(fps);
     for (int f : {24, 30, 60, 120})
@@ -180,7 +193,7 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
 
   // Quality: the presets that resolve the bitrate, plus a disabled mirror of a hand-typed one.
   QMenu* qual = menu.addMenu("Quality");
-  qual->setEnabled(idle);
+  qual->setEnabled(idle && !stream);  // recording presets do not control a live stream's CBR bitrate
   {
     auto* grp = new QActionGroup(qual);
     for (auto tv : {std::pair{"High", "high"}, std::pair{"Standard", "standard"}, std::pair{"Light", "light"},
@@ -411,7 +424,7 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
     });
   });
 
-  auto* stayFilter = new MenuStayOpenFilter(&menu, [p, startStop, destinationInfo, pause, ytInfo, ytClear, ytStudio, muteMic, muteSys, shInfo, shCopyLive, shCopyVod, shOpenLive, shOpenVod, twKeyInfo] {
+  auto* stayFilter = new MenuStayOpenFilter(&menu, [p, startStop, destinationInfo, encodingInfo, resolutionMenu, codecMenu, qual, pause, ytInfo, ytClear, ytStudio, muteMic, muteSys, shInfo, shCopyLive, shCopyVod, shOpenLive, shOpenVod, twKeyInfo] {
     const RS s = p->recState();
     const bool isStream = p->outputKind() == "stream";
     const bool keyOk = p->streamKeySet();
@@ -420,6 +433,13 @@ void buildControlMenu(QMenu& menu, MainPanel& panel, ControlMenuHooks hooks) {
     startStop->setIcon(destinationIcon(dest.platform));
     destinationInfo->setText("Destination: " + dest.caption());
     destinationInfo->setIcon(destinationIcon(dest.platform));
+    encodingInfo->setText(p->encodingSummary());
+    encodingInfo->setVisible(isStream);
+    codecMenu->setEnabled(!isStream);
+    qual->setEnabled(s == RS::Idle && !p->starting() && !isStream);
+    const auto config = p->currentConfig();
+    for (auto* a : resolutionMenu->actions())
+      a->setChecked(a->property("resolutionHeight").toInt() == (isStream ? config.streamHeight : config.outHeight));
     startStop->setEnabled(!p->starting() && (s != RS::Idle || !isStream || keyOk));
     pause->setEnabled((s == RS::Recording || s == RS::Paused) && !isStream);
     if (ytInfo) ytInfo->setText(keyOk ? "Stream key: set" : "Stream key: not set");

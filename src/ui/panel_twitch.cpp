@@ -14,6 +14,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSignalBlocker>
+#include <QSpinBox>
 #include <QTabWidget>
 #include <QTimer>
 #include <QUrl>
@@ -22,6 +23,7 @@
 #include "links.h"
 #include "panel.h"
 #include "telemetry.h"
+#include "video_layout.h"
 
 namespace vv::ui {
 
@@ -244,7 +246,7 @@ void MainPanel::buildTwitchTab() {
     twKeyEdit_->setPlaceholderText("or paste the stream key by hand (stored encrypted)");
     twKeySave_ = new QPushButton("SAVE", this);
     twKeyClear_ = new QPushButton("CLEAR", this);
-    auto* hint = lab("Encoding, resolution and audio are shared with the Recording tab. Twitch accepts up to 6000 kbps for non-partners.");
+    auto* hint = lab("Set the actual stream resolution and bitrate in STREAM ENCODING below. Audio is shared with Recording.");
     hint->setWordWrap(true);
 
     g->addWidget(lab("TWITCH APP CLIENT ID"), 0, 0, 1, 3);
@@ -336,6 +338,46 @@ void MainPanel::buildTwitchTab() {
     });
     connect(twDashboardBtn_, &QPushButton::clicked, this, [this] {
       if (const auto* p = twitchProfile()) openExternal(QUrl(s2q(p->studioUrl)));
+    });
+  }
+
+  // Real stream controls, mirrored with the shared streaming configuration and HUD menu.
+  {
+    auto* g = new QGridLayout();
+    auto lab = [&](const char* text) { auto* l = new QLabel(text, this); l->setObjectName("sub"); return l; };
+    twStreamResCombo_ = new QComboBox(this);
+    twStreamResCombo_->setObjectName("twitchStreamResolution");
+    twStreamResCombo_->addItem("Source size (native)", 0);
+    for (int h : {2160, 1440, 1080, 720, 480}) {
+      auto size = vv::streamCanvas(0, 0, h);
+      twStreamResCombo_->addItem(QString("%1p (%2 x %3)").arg(h).arg(size.width).arg(size.height), h);
+    }
+    twFpsCombo_ = new QComboBox(this);
+    twFpsCombo_->setObjectName("twitchStreamFps");
+    for (int fps : {24, 30, 60, 120}) twFpsCombo_->addItem(QString("%1 fps").arg(fps), fps);
+    twBitrate_ = new QSpinBox(this);
+    twBitrate_->setObjectName("twitchStreamBitrate");
+    twBitrate_->setRange(1000, 6000);
+    twBitrate_->setSingleStep(500);
+    twBitrate_->setSuffix(" kbps");
+    g->addWidget(lab("STREAM RESOLUTION"), 0, 0);
+    g->addWidget(lab("FRAME RATE"), 0, 1);
+    g->addWidget(lab("BITRATE (CBR)"), 0, 2);
+    g->addWidget(twStreamResCombo_, 1, 0);
+    g->addWidget(twFpsCombo_, 1, 1);
+    g->addWidget(twBitrate_, 1, 2);
+    auto* hint = lab("Named resolutions use a 16:9 canvas with black bars for ultrawide sources. Twitch H.264 uses up to 6000 kbps.");
+    hint->setWordWrap(true);
+    g->addWidget(hint, 2, 0, 1, 3);
+    body->addWidget(makeCard("STREAM ENCODING (H.264 CBR + 2s GOP)", g, this));
+    connect(twStreamResCombo_, &QComboBox::currentIndexChanged, this, [this] {
+      if (!loading_) setStreamHeight(twStreamResCombo_->currentData().toInt());
+    });
+    connect(twFpsCombo_, &QComboBox::currentIndexChanged, this, [this] {
+      if (!loading_) setFps(twFpsCombo_->currentData().toInt());
+    });
+    connect(twBitrate_, &QSpinBox::valueChanged, this, [this](int value) {
+      if (!loading_) { streamKbps_->setValue(value); persist(); }
     });
   }
 
