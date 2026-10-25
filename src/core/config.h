@@ -62,8 +62,14 @@ void saveSettings(const RecordConfig& c);
 struct StreamChannel {
   std::string id = "default";
   std::string label = "Main Channel";
+  std::string platform = "youtube";  // youtube | twitch
   std::string studioUrl = "https://studio.youtube.com/";
   std::string streamUrl = "rtmp://a.rtmp.youtube.com/live2";
+  // Twitch only (empty for YouTube profiles)
+  std::string twitchLogin, twitchUserId, twitchDisplayName;
+  std::string title, categoryId, categoryName, language = "it";
+  std::vector<std::string> tags;
+  bool applyInfoOnGoLive = true;
   json toJson() const;
   static StreamChannel fromJson(const json& j);
 };
@@ -76,6 +82,7 @@ struct UiPrefs {
   bool shareToClipboard = true;
   bool darkTheme = false;     // false = light sage, true = dark charcoal/sage
   std::vector<StreamChannel> channels;
+  std::string twitchClientId;  // Client ID of the Twitch app (not a secret)
   json toJson() const;
   static UiPrefs fromJson(const json& j);
 };

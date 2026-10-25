@@ -235,6 +235,24 @@ TEST_CASE("stream output validates its URL, bitrate and height") {
   CHECK_FALSE(c.validate().empty());
 }
 
+TEST_CASE("stream channels carry a platform and the Twitch broadcast info") {
+  StreamChannel c;
+  c.id = "tw_123456"; c.label = "voloire"; c.platform = "twitch";
+  c.twitchLogin = "voloire"; c.twitchUserId = "123456"; c.twitchDisplayName = "voloire";
+  c.title = "Late session"; c.categoryId = "509658"; c.categoryName = "Just Chatting";
+  c.language = "it"; c.tags = {"gaming", "chill"}; c.applyInfoOnGoLive = false;
+  StreamChannel r = StreamChannel::fromJson(c.toJson());
+  CHECK(r.platform == "twitch");
+  CHECK(r.twitchUserId == "123456");
+  CHECK(r.tags == std::vector<std::string>{"gaming", "chill"});
+  CHECK(r.applyInfoOnGoLive == false);
+  CHECK(StreamChannel::fromJson({{"id", "x"}}).platform == "youtube");   // old ui.json: no platform
+  CHECK(StreamChannel::fromJson({{"id", "x"}, {"platform", "weird"}}).platform == "youtube");
+  CHECK(StreamChannel::fromJson({{"id", "x"}}).applyInfoOnGoLive == true);
+  UiPrefs p; p.twitchClientId = "abc123";
+  CHECK(UiPrefs::fromJson(p.toJson()).twitchClientId == "abc123");
+}
+
 TEST_CASE("planShare fits the target") {
   SharePlan a = planShare(30, 1920, 1080, 60, 25, true);
   CHECK(a.error.empty());
