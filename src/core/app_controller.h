@@ -6,6 +6,7 @@
 #include "config.h"
 #include "recorder.h"
 #include "share_copy.h"
+#include "twitch.h"
 
 namespace vv {
 
@@ -26,8 +27,15 @@ class AppController {
 
   std::function<void()> onShutdown;                       // "shutdown" command
   std::function<json(const json&)> extra;                 // UI-only commands; return null json if unhandled
+  std::function<void()> onPrefsChanged;                   // ui.json was rewritten under the UI; may run on any thread
 
  private:
+  json handleTwitch(const std::string& cmd, const json& req);
+  std::string twitchClientId() const;
+  StreamChannel twitchProfile(const std::string& channelId = {}) const;
+  void upsertTwitchProfile(const TwitchUser& u);
+  bool resolveTwitch(TwitchClient& t, const std::string& channelId, StreamChannel& out, std::string& err);
+  void twitchAuthLoop(TwitchDeviceCode code);
   json shareStatus();
   json shareStart(const std::string& path, int targetMB);
 
@@ -43,6 +51,12 @@ class AppController {
   uint64_t shareBytes_ = 0;
   std::atomic<bool> shareCancel_{false};
   std::thread shareThread_;
+
+  // Twitch sign-in: the device-code poll runs on its own thread, its state is read by twitch_status.
+  std::mutex twitchMu_;
+  json twitchAuth_ = {{"state", "idle"}};
+  std::atomic<bool> twitchCancel_{false};
+  std::thread twitchThread_;
 };
 
 }  // namespace vv

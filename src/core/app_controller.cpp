@@ -1,9 +1,12 @@
 #include "app_controller.h"
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include "devices.h"
+#include "http_client.h"
 #include "secrets.h"
 #include "telemetry.h"
+#include "twitch.h"
 
 namespace vv {
 
@@ -126,6 +129,7 @@ json AppController::handle(const json& req) {
     j["metrics"] = Telemetry::get().snapshot();
     return j;
   }
+  if (cmd.rfind("twitch_", 0) == 0) return handleTwitch(cmd, req);
   if (cmd == "share") return shareStart(req.value("path", std::string()), req.value("targetMB", 0));
   if (cmd == "share_status") return {{"ok", true}, {"share", shareStatus()}};
   if (cmd == "shutdown") {
@@ -141,7 +145,184 @@ json AppController::handle(const json& req) {
 
 AppController::~AppController() {
   shareCancel_ = true;
+  twitchCancel_ = true;
   if (shareThread_.joinable()) shareThread_.join();
+  if (twitchThread_.joinable()) twitchThread_.join();
+}
+
+// ---------------------------------------------------------------- Twitch commands
+
+std::string AppController::twitchClientId() const { return loadUiPrefs().twitchClientId; }
+
+StreamChannel AppController::twitchProfile(const std::string& channelId) const {
+  UiPrefs p = loadUiPrefs();
+  for (const auto& c : p.channels)
+    if (c.platform == "twitch" && (channelId.empty() || c.id == channelId)) return c;
+  return StreamChannel{};  // platform "youtube": no Twitch profile
+}
+
+void AppController::upsertTwitchProfile(const TwitchUser& u) {
+  UiPrefs p = loadUiPrefs();
+  const std::string id = "tw_" + u.id;
+  StreamChannel* ch = nullptr;
+  for (auto& c : p.channels) if (c.id == id) ch = &c;
+  if (!ch) {
+    p.channels.push_back(StreamChannel{});
+    ch = &p.channels.back();
+    ch->id = id;
+    ch->platform = "twitch";
+    ch->streamUrl = "rtmp://live.twitch.tv/app";
+  }
+  ch->label = u.displayName;
+  ch->twitchLogin = u.login;
+  ch->twitchUserId = u.id;
+  ch->twitchDisplayName = u.displayName;
+  ch->studioUrl = "https://dashboard.twitch.tv/u/" + u.login + "/stream-manager";
+  saveUiPrefs(p);
+  if (onPrefsChanged) onPrefsChanged();
+}
+
+// The Twitch profile a command acts on; when none exists yet but a session does, it is created.
+bool AppController::resolveTwitch(TwitchClient& t, const std::string& channelId, StreamChannel& out, std::string& err) {
+  out = twitchProfile(channelId);
+  if (out.platform == "twitch" && !out.twitchUserId.empty()) return true;
+  if (!t.signedIn()) { err = "Twitch: not connected, sign in from the Twitch tab"; return false; }
+  TwitchUser u;
+  if (!t.me(u, err)) return false;
+  upsertTwitchProfile(u);
+  out = twitchProfile("tw_" + u.id);
+  return true;
+}
+
+void AppController::twitchAuthLoop(TwitchDeviceCode code) {
+  TwitchClient t(twitchClientId());
+  const std::string pollMs = envOr(L"VV_LINK_POLL_MS", "");
+  int interval = std::max(1, code.interval);
+  if (!pollMs.empty() && std::atoi(pollMs.c_str()) < 5000) interval = 1;
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(std::max(30, code.expiresIn));
+  auto finish = [this](const char* state, const std::string& error, const std::string& login = {}) {
+    std::lock_guard lk(twitchMu_);
+    twitchAuth_ = {{"state", state}, {"error", error}, {"login", login}};
+  };
+  while (!twitchCancel_) {
+    for (int i = 0; i < interval * 10 && !twitchCancel_; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    if (twitchCancel_) return;
+    if (std::chrono::steady_clock::now() > deadline) { finish("error", "Twitch: the code expired, start the sign-in again"); return; }
+    std::string err;
+    std::string r = t.pollDeviceToken(code.deviceCode, err);
+    if (r == "pending") continue;
+    if (r == "error") { finish("error", err); return; }
+    TwitchUser u;
+    if (!t.me(u, err)) { t.signOut(); finish("error", err); return; }
+    upsertTwitchProfile(u);
+    finish("ok", {}, u.login);
+    return;
+  }
+}
+
+json AppController::handleTwitch(const std::string& cmd, const json& req) {
+  TwitchClient t(twitchClientId());
+  std::string e;
+  if (cmd == "twitch_status") {
+    StreamChannel p = twitchProfile();
+    json auth;
+    {
+      std::lock_guard lk(twitchMu_);
+      auth = twitchAuth_;
+    }
+    return {{"ok", true},
+            {"clientIdSet", !twitchClientId().empty()},
+            {"signedIn", t.signedIn()},
+            {"login", p.twitchLogin},
+            {"userId", p.twitchUserId},
+            {"displayName", p.twitchDisplayName},
+            {"channel", p.platform == "twitch" ? p.id : std::string()},
+            {"auth", auth}};
+  }
+  if (cmd == "twitch_auth_start") {
+    std::string cid = req.value("clientId", std::string());
+    if (!cid.empty()) {
+      UiPrefs p = loadUiPrefs();
+      p.twitchClientId = cid;
+      saveUiPrefs(p);
+      if (onPrefsChanged) onPrefsChanged();
+    }
+    TwitchClient t2(twitchClientId());
+    TwitchDeviceCode code;
+    if (!t2.startDeviceAuth(code, e)) return err(e);
+    twitchCancel_ = true;
+    if (twitchThread_.joinable()) twitchThread_.join();
+    twitchCancel_ = false;
+    {
+      std::lock_guard lk(twitchMu_);
+      twitchAuth_ = {{"state", "pending"}, {"userCode", code.userCode}, {"verificationUri", code.verificationUri}, {"error", ""}};
+    }
+    twitchThread_ = std::thread([this, code] { twitchAuthLoop(code); });
+    return {{"ok", true}, {"userCode", code.userCode}, {"verificationUri", code.verificationUri}, {"expiresIn", code.expiresIn}};
+  }
+  if (cmd == "twitch_auth_cancel") {
+    twitchCancel_ = true;
+    if (twitchThread_.joinable()) twitchThread_.join();
+    std::lock_guard lk(twitchMu_);
+    twitchAuth_ = {{"state", "idle"}};
+    return {{"ok", true}};
+  }
+  if (cmd == "twitch_sign_out") {
+    t.signOut();
+    return {{"ok", true}};
+  }
+  if (cmd == "twitch_ingests") {
+    std::vector<TwitchIngest> v;
+    if (!t.ingests(v, e)) return err(e);
+    json a = json::array();
+    for (const auto& i : v) a.push_back({{"name", i.name}, {"url", i.url}});
+    return {{"ok", true}, {"ingests", a}};
+  }
+  if (cmd == "twitch_search_categories") {
+    std::vector<TwitchCategory> v;
+    if (!t.searchCategories(req.value("query", std::string()), v, e)) return err(e);
+    json a = json::array();
+    for (const auto& c : v) a.push_back({{"id", c.id}, {"name", c.name}});
+    return {{"ok", true}, {"categories", a}};
+  }
+
+  StreamChannel p;
+  if (!resolveTwitch(t, req.value("channel", std::string()), p, e)) return err(e);
+  if (cmd == "twitch_fetch_key") {
+    std::string key;
+    if (!t.streamKey(p.twitchUserId, key, e)) return err(e);
+    if (!saveSecret(streamSecretName(p.id), key)) return err("cannot store the stream key");
+    return {{"ok", true}, {"streamKeySet", true}, {"channel", p.id}};
+  }
+  if (cmd == "twitch_get_info") {
+    TwitchChannelInfo i;
+    if (!t.channelInfo(p.twitchUserId, i, e)) return err(e);
+    return {{"ok", true}, {"title", i.title}, {"categoryId", i.categoryId}, {"categoryName", i.categoryName},
+            {"language", i.language}, {"tags", i.tags}};
+  }
+  if (cmd == "twitch_set_info") {
+    TwitchChannelInfo i;
+    i.title = req.value("title", std::string());
+    i.categoryId = req.value("categoryId", std::string());
+    i.categoryName = req.value("categoryName", std::string());
+    i.language = req.value("language", std::string("it"));
+    if (req.contains("tags") && req["tags"].is_array())
+      for (const auto& x : req["tags"]) if (x.is_string()) i.tags.push_back(x.get<std::string>());
+    if (!t.modifyChannel(p.twitchUserId, i, e)) return err(e);
+    UiPrefs prefs = loadUiPrefs();
+    for (auto& c : prefs.channels) {
+      if (c.id != p.id) continue;
+      c.title = i.title;
+      if (c.categoryId != i.categoryId || !i.categoryName.empty()) c.categoryName = i.categoryName;
+      c.categoryId = i.categoryId;
+      c.language = i.language;
+      c.tags = i.tags;
+    }
+    saveUiPrefs(prefs);
+    if (onPrefsChanged) onPrefsChanged();
+    return {{"ok", true}};
+  }
+  return err("unknown command: " + cmd);
 }
 
 json AppController::shareStatus() {

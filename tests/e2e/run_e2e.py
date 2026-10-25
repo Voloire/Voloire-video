@@ -1177,6 +1177,109 @@ def sc_ui_stream(out):
     return rep
 
 
+def connect_twitch(c, fake, timeout=15):
+    """Signs the GUI into the fake Twitch over the pipe; returns the twitch_status when done."""
+    r = c.call(cmd="twitch_auth_start", clientId=fake.client_id)
+    assert r.get("ok"), r
+    fake.approve()
+    end = time.time() + timeout
+    while time.time() < end:
+        s = c.call(cmd="twitch_status")
+        if s.get("signedIn"):
+            return s
+        time.sleep(0.2)
+    return c.call(cmd="twitch_status")
+
+
+def sc_twitch_auth(out):
+    rep = Report("twitch_auth")
+    d = out / "twitch_auth"
+    if d.exists():
+        shutil.rmtree(d, ignore_errors=True)
+    d.mkdir(parents=True, exist_ok=True)
+    from fakes.twitch_api import FakeTwitch
+    fake = FakeTwitch()
+    gui = Gui(d, "vv-e2e-twitch-auth", env_extra=fake.env)
+    dumps = []  # every pipe answer, scanned for tokens and the key at the end
+
+    def call(**req):
+        r = gui.c.call(**req)
+        dumps.append(json.dumps(r))
+        return r
+
+    settings = d / "settings"
+    try:
+        s = call(cmd="twitch_status")
+        rep.check("before anything: not signed in, no client id, auth idle",
+                  s.get("signedIn") is False and s.get("clientIdSet") is False and s["auth"]["state"] == "idle", s)
+
+        r = call(cmd="twitch_auth_start", clientId=fake.client_id)
+        rep.check("auth start: user code and verification URI",
+                  r.get("ok") is True and r.get("userCode") == fake.user_code
+                  and r.get("verificationUri") == fake.base + "/activate", r)
+        s = call(cmd="twitch_status")
+        rep.check("while waiting: auth pending and client id remembered",
+                  s["auth"]["state"] == "pending" and s["clientIdSet"] is True, s)
+
+        fake.approve()
+        end = time.time() + 10
+        while time.time() < end and not call(cmd="twitch_status").get("signedIn"):
+            time.sleep(0.2)
+        s = call(cmd="twitch_status")
+        rep.check("after approval: signed in as voloire with the channel profile",
+                  s.get("signedIn") is True and s.get("login") == "voloire" and s.get("userId") == "123456"
+                  and s.get("channel") == "tw_123456" and s["auth"]["state"] == "ok", s)
+
+        ui = json.loads((settings / "ui.json").read_text(encoding="utf-8"))
+        ch = next((x for x in ui.get("channels", []) if x.get("id") == "tw_123456"), {})
+        rep.check("ui.json: Twitch profile and client id saved",
+                  ch.get("platform") == "twitch" and ch.get("label") == "voloire"
+                  and ch.get("streamUrl") == "rtmp://live.twitch.tv/app" and ui.get("twitchClientId") == fake.client_id, ch)
+
+        r = call(cmd="twitch_fetch_key", channel="tw_123456")
+        rep.check("fetch key: stored, never returned",
+                  r.get("ok") is True and r.get("streamKeySet") is True and fake.stream_key not in json.dumps(r), r)
+        rep.check("fetch key: encrypted blob on disk", (settings / "secrets" / "stream_key_tw_123456.bin").exists())
+        cfg = call(cmd="get_config", channel="tw_123456")
+        rep.check("get_config reports the Twitch key as set", cfg["config"]["streamKeySet"] is True, cfg)
+
+        r = call(cmd="twitch_get_info")
+        rep.check("get info: the channel's title and category",
+                  r.get("ok") is True and r.get("title") == fake.channel["title"]
+                  and r.get("categoryId") == fake.channel["game_id"], r)
+
+        fake.expire_token()
+        r = call(cmd="twitch_get_info")
+        rep.check("expired access token: refreshed once, call succeeds", r.get("ok") is True and fake.refreshes == 1,
+                  f"{r} refreshes={fake.refreshes}")
+
+        fake.break_refresh()
+        fake.expire_token()
+        r = call(cmd="twitch_get_info")
+        rep.check("refresh refused: clear error asking to sign in again",
+                  r.get("ok") is False and "sign in" in r.get("error", ""), r)
+        rep.check("refresh refused: no longer signed in", call(cmd="twitch_status").get("signedIn") is False)
+
+        s = connect_twitch(gui.c, fake)
+        rep.check("sign in again after the failure", s.get("signedIn") is True, s)
+        call(cmd="twitch_sign_out")
+        rep.check("sign out: signed out and the token blob is gone",
+                  call(cmd="twitch_status").get("signedIn") is False
+                  and not (settings / "secrets" / "twitch_access_token.bin").exists())
+        n_after_signout = len(fake.requests)
+        r = call(cmd="twitch_get_info")
+        rep.check("signed out: refused with no request to Twitch",
+                  r.get("ok") is False and "not connected" in r.get("error", "") and len(fake.requests) == n_after_signout,
+                  f"{r} requests {n_after_signout}->{len(fake.requests)}")
+
+        hits = scan_for_secrets([settings, d / "telemetry", *dumps], [*fake.all_tokens, fake.stream_key])
+        rep.check("no token and no stream key in the settings, the telemetry or any pipe answer", not hits, hits)
+    finally:
+        gui.close()
+        fake.stop()
+    return rep
+
+
 def sc_installers(out):
     import sc_installers
     return sc_installers.run(out)
@@ -1204,6 +1307,7 @@ SCENARIOS = {
     "ui": sc_ui,
     "hud": sc_hud,
     "ui_stream": sc_ui_stream,
+    "twitch_auth": sc_twitch_auth,
     "soak": sc_longer_soak,
     "installers": sc_installers,
 }
