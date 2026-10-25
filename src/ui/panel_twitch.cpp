@@ -56,11 +56,17 @@ void MainPanel::openExternal(const QUrl& u) {
 }
 
 void MainPanel::runAsync(std::function<vv::json()> work, std::function<void(const vv::json&)> done) {
+  for (auto it = asyncTasks_.begin(); it != asyncTasks_.end();) {
+    if (it->wait_for(std::chrono::seconds(0)) == std::future_status::ready) it = asyncTasks_.erase(it);
+    else ++it;
+  }
   QPointer<MainPanel> self(this);
-  std::thread([self, work = std::move(work), done = std::move(done)] {
-    vv::json r = work();
+  asyncTasks_.push_back(std::async(std::launch::async, [self, work = std::move(work), done = std::move(done)] {
+    vv::json r;
+    try { r = work(); }
+    catch (const std::exception&) { r = {{"ok", false}, {"error", "Twitch: unexpected response, try again"}}; }
     QMetaObject::invokeMethod(qApp, [self, done, r] { if (self) done(r); }, Qt::QueuedConnection);
-  }).detach();
+  }));
 }
 
 // ---------------------------------------------------------------- profile helpers
@@ -464,7 +470,7 @@ void MainPanel::buildTwitchTab() {
       }
     });
     connect(twOpenFolderBtn_, &QPushButton::clicked, this,
-            [this] { QDesktopServices::openUrl(QUrl::fromLocalFile(dirEdit_->text())); });
+            [this] { openExternal(QUrl::fromLocalFile(dirEdit_->text())); });
   }
   body->addStretch(1);
 }
@@ -596,7 +602,7 @@ void MainPanel::twitchConnect() {
              mb->setWindowModality(Qt::NonModal);
              connect(mb, &QDialog::rejected, this, [this] {
                twAuthTimer_->stop();
-               app_.handle({{"cmd", "twitch_auth_cancel"}});
+               runAsync([this] { return app_.handle({{"cmd", "twitch_auth_cancel"}}); }, [](const vv::json&) {});
              });
              twAuthBox_ = mb;
              mb->show();
@@ -606,10 +612,11 @@ void MainPanel::twitchConnect() {
 }
 
 void MainPanel::twitchSignOut() {
-  app_.handle({{"cmd", "twitch_sign_out"}});
-  syncKeyUi();
-  syncTwitchUi();
-  emit changed();
+  runAsync([this] { return app_.handle({{"cmd", "twitch_sign_out"}}); }, [this](const vv::json&) {
+    syncKeyUi();
+    syncTwitchUi();
+    emit changed();
+  });
 }
 
 void MainPanel::twitchFetchKey() {

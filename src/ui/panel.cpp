@@ -103,6 +103,7 @@ MainPanel::MainPanel(vv::AppController& app, QWidget* parent) : QWidget(parent),
 MainPanel::~MainPanel() {
   stopIdleAudio();
   if (startTh_.joinable()) startTh_.join();
+  for (auto& task : asyncTasks_) task.wait();
 }
 
 void MainPanel::build() {
@@ -1450,7 +1451,7 @@ void MainPanel::startRecording() {
   vv::json info;
   if (c.output == "stream" && prefs_) {
     for (const auto& ch : prefs_->channels)
-      if (ch.id == c.streamChannel && ch.platform == "twitch" && ch.applyInfoOnGoLive && !ch.title.empty())
+      if (ch.id == c.streamChannel && ch.platform == "twitch" && ch.applyInfoOnGoLive)
         info = {{"cmd", "twitch_set_info"}, {"channel", ch.id},           {"title", ch.title},
                 {"categoryId", ch.categoryId}, {"categoryName", ch.categoryName}, {"language", ch.language},
                 {"tags", ch.tags}};

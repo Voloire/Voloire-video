@@ -52,7 +52,7 @@ TEST_CASE("AudioRing keeps order and trims to its cap") {
   CHECK(r.droppedFrames() == (uint64_t)kSampleRate);
 }
 
-TEST_CASE("RecordConfig round-trips and validates") {
+TEST_CASE("RecordConfig round-trips and validates" * doctest::test_suite("functional")) {
   RecordConfig c;
   c.videoSource = "synthetic";
   c.sys = "synthetic";
@@ -73,7 +73,7 @@ TEST_CASE("RecordConfig round-trips and validates") {
   CHECK(w.validate() == "SYS app mode needs a target process");
 }
 
-TEST_CASE("Telemetry counters, gauges and event log") {
+TEST_CASE("Telemetry counters, gauges and event log" * doctest::test_suite("functional")) {
   auto dir = tempDir("telemetry");
   auto& t = Telemetry::get();
   t.resetMetrics();
@@ -99,7 +99,7 @@ TEST_CASE("Device enumeration answers without throwing") {
   (void)listWindows();
 }
 
-TEST_CASE("Control pipe round trip") {
+TEST_CASE("Control pipe round trip" * doctest::test_suite("functional")) {
   AppController app;
   ControlServer srv;
   std::string e;
@@ -118,7 +118,7 @@ TEST_CASE("Control pipe round trip") {
   srv.stop();
 }
 
-TEST_CASE("quality presets map to bitrates") {
+TEST_CASE("quality presets map to bitrates" * doctest::test_suite("functional")) {
   CHECK(presetBitrateKbps("standard", 1080, 60, "h264") == 12000);
   CHECK(presetBitrateKbps("light", 720, 30, "h264") == 2600);
   CHECK(presetBitrateKbps("high", 2160, 60, "hevc") == 70000);
@@ -168,7 +168,7 @@ TEST_CASE("Recorder records synthetic sources, pauses and finalises") {
   CHECK(fs::exists(dir / "telemetry" / "result.json"));
 }
 
-TEST_CASE("redaction hides stream keys, in json and in key URLs") {
+TEST_CASE("redaction hides stream keys, in json and in key URLs" * doctest::test_suite("functional")) {
   json j = {{"streamKey", "abc"}, {"x", {{"key", "r"}, {"z", 1}}}};
   json r = redactJson(j);
   CHECK(r["streamKey"] == "***");
@@ -191,7 +191,7 @@ TEST_CASE("redaction hides stream keys, in json and in key URLs") {
   CHECK(d["other"] == 5);
 }
 
-TEST_CASE("stream secrets round trip through DPAPI and stay unreadable on disk") {
+TEST_CASE("stream secrets round trip through DPAPI and stay unreadable on disk" * doctest::test_suite("functional")) {
   auto dir = tempDir("secrets");
   std::wstring env = L"VV_SETTINGS_DIR=" + wide(strOf(dir));
   _wputenv(env.c_str());  // the CRT environment is what settingsPath() reads
@@ -215,7 +215,7 @@ TEST_CASE("stream secrets round trip through DPAPI and stay unreadable on disk")
   CHECK(loadSecret("stream_key").empty());
 }
 
-TEST_CASE("stream output validates its URL, bitrate and height") {
+TEST_CASE("stream output validates its URL, bitrate and height" * doctest::test_suite("functional")) {
   RecordConfig c;
   c.videoSource = "synthetic";
   c.sys = "synthetic";
@@ -238,7 +238,7 @@ TEST_CASE("stream output validates its URL, bitrate and height") {
   CHECK_FALSE(c.validate().empty());
 }
 
-TEST_CASE("stream channels carry a platform and the Twitch broadcast info") {
+TEST_CASE("stream channels carry a platform and the Twitch broadcast info" * doctest::test_suite("functional")) {
   StreamChannel c;
   c.id = "tw_123456"; c.label = "voloire"; c.platform = "twitch";
   c.twitchLogin = "voloire"; c.twitchUserId = "123456"; c.twitchDisplayName = "voloire";
@@ -256,13 +256,13 @@ TEST_CASE("stream channels carry a platform and the Twitch broadcast info") {
   CHECK(UiPrefs::fromJson(p.toJson()).twitchClientId == "abc123");
 }
 
-TEST_CASE("urlEncode keeps unreserved characters and escapes the rest") {
+TEST_CASE("urlEncode keeps unreserved characters and escapes the rest" * doctest::test_suite("functional")) {
   CHECK(urlEncode("just chatting") == "just%20chatting");
   CHECK(urlEncode("a-b_c.d~e") == "a-b_c.d~e");
   CHECK(urlEncode("tag:ok/" "é") == "tag%3Aok%2F%C3%A9");
 }
 
-TEST_CASE("httpRequest reports a transport error without throwing") {
+TEST_CASE("httpRequest reports a transport error without throwing" * doctest::test_suite("functional")) {
   HttpResponse r = httpRequest("GET", "http://127.0.0.1:9/nothing", {}, {}, 2000);  // port 9: nothing listens
   CHECK_FALSE(r.ok());
   CHECK_FALSE(r.error.empty());
@@ -271,14 +271,14 @@ TEST_CASE("httpRequest reports a transport error without throwing") {
   CHECK_FALSE(bad.error.empty());
 }
 
-TEST_CASE("envOr falls back when the variable is unset or empty") {
+TEST_CASE("envOr falls back when the variable is unset or empty" * doctest::test_suite("functional")) {
   _wputenv(L"VV_TEST_ENVOR=");
   CHECK(envOr(L"VV_TEST_ENVOR", "fb") == "fb");
   _wputenv(L"VV_TEST_ENVOR=val");
   CHECK(envOr(L"VV_TEST_ENVOR", "fb") == "val");
 }
 
-TEST_CASE("Twitch helpers: ingest template, broadcast validation, patch body") {
+TEST_CASE("Twitch helpers: ingest template, broadcast validation, patch body" * doctest::test_suite("functional")) {
   CHECK(ingestBaseFromTemplate("rtmp://mil.contribute.live-video.net/app/{stream_key}") == "rtmp://mil.contribute.live-video.net/app");
   CHECK(ingestBaseFromTemplate("rtmp://live.twitch.tv/app") == "rtmp://live.twitch.tv/app");
   TwitchChannelInfo i;
@@ -302,7 +302,7 @@ TEST_CASE("Twitch helpers: ingest template, broadcast validation, patch body") {
   CHECK(TwitchBases::fromEnv().api == "https://api.twitch.tv/helix");
 }
 
-TEST_CASE("Twitch client refuses every call while not connected, with no request") {
+TEST_CASE("Twitch client refuses every call while not connected, with no request" * doctest::test_suite("functional")) {
   auto dir = tempDir("twitch-offline");
   std::wstring env = L"VV_SETTINGS_DIR=" + wide(strOf(dir));
   _wputenv(env.c_str());
@@ -318,7 +318,7 @@ TEST_CASE("Twitch client refuses every call while not connected, with no request
   CHECK(err.find("not connected") != std::string::npos);
 }
 
-TEST_CASE("YouTube share link helpers") {
+TEST_CASE("YouTube share link helpers" * doctest::test_suite("functional")) {
   CHECK(youtubeChannelId("UCDSLIDCQKYVHFLqKEb9CMqw") == "UCDSLIDCQKYVHFLqKEb9CMqw");
   CHECK(youtubeChannelId("https://studio.youtube.com/channel/UCDSLIDCQKYVHFLqKEb9CMqw/editing/profile") == "UCDSLIDCQKYVHFLqKEb9CMqw");
   CHECK(youtubeChannelId("https://studio.youtube.com/").empty());
@@ -332,7 +332,7 @@ TEST_CASE("YouTube share link helpers") {
   CHECK(twitchLiveUrl("voloire") == "https://www.twitch.tv/voloire");
 }
 
-TEST_CASE("LinkTracker without a YouTube channel id ends at once with a hint") {
+TEST_CASE("LinkTracker without a YouTube channel id ends at once with a hint" * doctest::test_suite("functional")) {
   StreamChannel ch;  // default profile, studioUrl https://studio.youtube.com/
   LinkTracker t;
   t.begin(ch, "");
@@ -342,7 +342,7 @@ TEST_CASE("LinkTracker without a YouTube channel id ends at once with a hint") {
   CHECK(s.error.find("channel ID") != std::string::npos);
 }
 
-TEST_CASE("planShare fits the target") {
+TEST_CASE("planShare fits the target" * doctest::test_suite("functional")) {
   SharePlan a = planShare(30, 1920, 1080, 60, 25, true);
   CHECK(a.error.empty());
   CHECK(a.videoKbps >= 6200);

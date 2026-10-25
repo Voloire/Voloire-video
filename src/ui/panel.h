@@ -2,6 +2,7 @@
 #include <QPointer>
 #include <QWidget>
 #include <functional>
+#include <future>
 #include <thread>
 #include "app_controller.h"
 #include "devices.h"
@@ -228,6 +229,7 @@ class MainPanel : public QWidget {
   QCheckBox *twApplyOnLiveCheck_ = nullptr, *twLocalCopyCheck_ = nullptr;
   ShareWidgets twShare_, ytShare_;
   QTimer* twAuthTimer_ = nullptr;
+  std::vector<std::future<void>> asyncTasks_;  // joined before the panel and controller are destroyed
   QPointer<QMessageBox> twAuthBox_;
   bool twSigned_ = false, twHasProfile_ = false;
   QString twLoadedId_;

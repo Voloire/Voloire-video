@@ -125,9 +125,10 @@ void LinkTracker::begin(const StreamChannel& ch, const std::string& clientId) {
 void LinkTracker::streamEnded() {
   std::lock_guard lk(mu_);
   if (!cur_) return;
-  cur_->ended = true;
   cur_->endedAtMs = steadyMs();
-  if (st_.state == "found") st_.state = "ended";
+  cur_->ended = true;
+  // End is visible immediately; the worker may still resolve a late VOD during the grace period.
+  st_.state = "ended";
 }
 
 LinkStatus LinkTracker::status() const {

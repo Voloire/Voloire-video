@@ -10,6 +10,29 @@
 
 **Spec:** this document's *Context* and *Decisions* sections (Franco's request and answers of 2026-10-25).
 
+## Execution status (2026-10-25)
+
+- Tasks 1-8 product changes are implemented on `feature/twitch-stream` in the dedicated worktree.
+- Remote verification: `main` and `origin/main` were both `2f8f226`; the eight implementation
+  commits ending at `6e5b5be` initially existed locally only, with no open pull request.
+- Franco's latest instruction replaces the audio/video verification commands below with functional
+  tests only. Do not run recordings, streams, encoders, audio/video playback, desktop GUI scenarios,
+  or the old harness self-test on his working PC. Encoding and audio were already validated for YouTube.
+- Functional validation uses `tests/functional_tests.py` and a test-only, allowlisted JSON-line driver,
+  isolated settings and local fake APIs. It exercises the real controller and link tracker without
+  starting the recorder, opening a browser or touching capture devices. Functional unit tests opt in through the `functional` doctest suite;
+  media and device tests cannot be included by an incomplete exclusion filter.
+- Regression fixes: sign-out cancels and joins pending device auth before deleting tokens; stream end
+  immediately reports `ended` while still allowing a late VOD to resolve during the grace period.
+- UI shutdown joins outstanding Twitch work; cancel/sign-out stay off the Qt thread. An empty
+  title is validated before go-live when applying broadcast info is enabled.
+- Default CI is functional-only; existing media and installer validation is retained as an explicit
+  manual `workflow_dispatch` option. GUI and live media scenarios are not claimed as rerun.
+- Local verification passed: Release build, 16 functional unit cases (106 assertions), and nine
+  headless functional integration cases, via `ctest --test-dir build -L functional --output-on-failure`.
+- Delivery follows this branch's pull request: push the implementation and validation commits,
+  merge when configured checks pass and no review requests changes, then remove the feature worktree.
+
 ## Context
 
 Voloire-video 1.3.0 streams to YouTube by RTMP with a pasted stream key (`src/ui/panel.cpp` YOUTUBE STREAM tab, `src/core/recorder.cpp:76-101`). Franco wants Twitch too, with a dedicated tab and settings, with sign-in done in the browser instead of pasting keys, with the broadcast info (title, category/game, tags, language) set from the app before going live, and with the share links (live page and VOD) available as early as possible for both Twitch and YouTube so he can hand them to friends and colleagues while live. VOD download stays manual (Twitch has no download API; the Video Producer page does it) and the existing local `.mkv` copy while live is the file to re-upload to YouTube.

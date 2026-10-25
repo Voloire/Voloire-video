@@ -61,6 +61,21 @@ scripts\package.ps1        # both installers into dist\
 
 ## Test and observability
 
+For functional validation without touching the desktop, audio/video devices or a browser:
+
+```powershell
+scripts\build.ps1
+build\bin\vv_unit_tests.exe '--test-suite=functional'
+python tests\functional_tests.py
+```
+
+The functional suite uses local fake APIs and isolated temporary settings to exercise Twitch sign-in,
+encrypted key storage, token refresh and sign-out, broadcast changes and rejection, category/ingest
+lookup, and Twitch/YouTube link resolution, including VODs published after a stream ends. Its test-only
+driver rejects capture, encoding and device commands. CI runs these functional checks by default.
+The existing audio/video and installer suites remain available through a manual CI run with
+`media_tests` enabled; the commands below run media tests and are separate from functional validation.
+
 The harness exercises the real binaries from the outside and judges the produced media; it never trusts the app's own word.
 
 | Layer | What | Run |

@@ -56,6 +56,7 @@ class AppController {
 
   // Twitch sign-in: the device-code poll runs on its own thread, its state is read by twitch_status.
   std::mutex twitchMu_;
+  std::mutex twitchAuthOpMu_;  // serialize start/cancel/sign-out and ownership of twitchThread_
   json twitchAuth_ = {{"state", "idle"}};
   std::atomic<bool> twitchCancel_{false};
   std::thread twitchThread_;

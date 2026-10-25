@@ -42,7 +42,7 @@ class LinkTracker {
  private:
   struct Session {
     std::atomic<bool> stop{false}, ended{false}, done{false};
-    int64_t endedAtMs = 0;
+    std::atomic<int64_t> endedAtMs{0};
   };
   void work(std::shared_ptr<Session> s, StreamChannel ch, std::string clientId, std::string beginIso);
   void update(const std::shared_ptr<Session>& s, const std::function<void(LinkStatus&)>& f);

@@ -258,6 +258,7 @@ json AppController::handleTwitch(const std::string& cmd, const json& req) {
             {"auth", auth}};
   }
   if (cmd == "twitch_auth_start") {
+    std::lock_guard authOp(twitchAuthOpMu_);
     std::string cid = req.value("clientId", std::string());
     if (!cid.empty()) {
       UiPrefs p = loadUiPrefs();
@@ -279,6 +280,7 @@ json AppController::handleTwitch(const std::string& cmd, const json& req) {
     return {{"ok", true}, {"userCode", code.userCode}, {"verificationUri", code.verificationUri}, {"expiresIn", code.expiresIn}};
   }
   if (cmd == "twitch_auth_cancel") {
+    std::lock_guard authOp(twitchAuthOpMu_);
     twitchCancel_ = true;
     if (twitchThread_.joinable()) twitchThread_.join();
     std::lock_guard lk(twitchMu_);
@@ -286,7 +288,13 @@ json AppController::handleTwitch(const std::string& cmd, const json& req) {
     return {{"ok", true}};
   }
   if (cmd == "twitch_sign_out") {
+    std::lock_guard authOp(twitchAuthOpMu_);
+    // Stop a pending device-code flow before deleting tokens, including an in-flight response.
+    twitchCancel_ = true;
+    if (twitchThread_.joinable()) twitchThread_.join();
     t.signOut();
+    std::lock_guard lk(twitchMu_);
+    twitchAuth_ = {{"state", "idle"}};
     return {{"ok", true}};
   }
   if (cmd == "twitch_ingests") {
