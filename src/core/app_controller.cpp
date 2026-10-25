@@ -21,7 +21,22 @@ std::string streamSecretName(const std::string& ch) {
 }
 }  // namespace
 
-AppController::AppController() { cfg_.outDir = defaultOutDir(); }
+AppController::AppController() {
+  cfg_.outDir = defaultOutDir();
+  // The share links follow the stream: begin when it is live, finish when the recorder is idle again.
+  rec_.onState = [this](RecState s) {
+    if (s == RecState::Recording) {
+      RecordConfig c = config();
+      if (c.output != "stream") return;
+      StreamChannel ch;
+      for (const auto& x : loadUiPrefs().channels)
+        if (x.id == c.streamChannel) ch = x;
+      links_.begin(ch, twitchClientId());
+    } else if (s == RecState::Idle) {
+      links_.streamEnded();
+    }
+  };
+}
 
 RecordConfig AppController::config() const {
   std::lock_guard lk(mu_);
@@ -84,6 +99,7 @@ json AppController::handle(const json& req) {
     json s = rec_.status();
     s["ok"] = true;
     s["share"] = shareStatus();
+    s["links"] = links_.status().toJson();
     return s;
   }
   if (cmd == "metrics") return {{"ok", true}, {"metrics", Telemetry::get().snapshot()}};
@@ -129,6 +145,7 @@ json AppController::handle(const json& req) {
     j["metrics"] = Telemetry::get().snapshot();
     return j;
   }
+  if (cmd == "links") return {{"ok", true}, {"links", links_.status().toJson()}};
   if (cmd.rfind("twitch_", 0) == 0) return handleTwitch(cmd, req);
   if (cmd == "share") return shareStart(req.value("path", std::string()), req.value("targetMB", 0));
   if (cmd == "share_status") return {{"ok", true}, {"share", shareStatus()}};
@@ -144,6 +161,7 @@ json AppController::handle(const json& req) {
 }
 
 AppController::~AppController() {
+  rec_.onState = nullptr;
   shareCancel_ = true;
   twitchCancel_ = true;
   if (shareThread_.joinable()) shareThread_.join();

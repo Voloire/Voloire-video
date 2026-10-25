@@ -11,6 +11,7 @@
 #include "control.h"
 #include "devices.h"
 #include "http_client.h"
+#include "links.h"
 #include "quality.h"
 #include "recorder.h"
 #include "redact.h"
@@ -315,6 +316,30 @@ TEST_CASE("Twitch client refuses every call while not connected, with no request
   std::string err;
   CHECK_FALSE(t.me(u, err));
   CHECK(err.find("not connected") != std::string::npos);
+}
+
+TEST_CASE("YouTube share link helpers") {
+  CHECK(youtubeChannelId("UCDSLIDCQKYVHFLqKEb9CMqw") == "UCDSLIDCQKYVHFLqKEb9CMqw");
+  CHECK(youtubeChannelId("https://studio.youtube.com/channel/UCDSLIDCQKYVHFLqKEb9CMqw/editing/profile") == "UCDSLIDCQKYVHFLqKEb9CMqw");
+  CHECK(youtubeChannelId("https://studio.youtube.com/").empty());
+  _wputenv(L"VV_YOUTUBE_BASE=");
+  CHECK(youtubeLiveUrl("UCDSLIDCQKYVHFLqKEb9CMqw") == "https://www.youtube.com/channel/UCDSLIDCQKYVHFLqKEb9CMqw/live");
+  CHECK(youtubeLiveUrl("").empty());
+  CHECK(extractCanonicalVideoId("<html><link rel=\"canonical\" href=\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\"><body>") == "dQw4w9WgXcQ");
+  CHECK(extractCanonicalVideoId("<link href=\"https://www.youtube.com/watch?v=abcDEF_-123\" rel=\"canonical\">") == "abcDEF_-123");
+  CHECK(extractCanonicalVideoId("<link rel=\"canonical\" href=\"https://www.youtube.com/channel/UCx\">").empty());
+  CHECK(extractCanonicalVideoId("").empty());
+  CHECK(twitchLiveUrl("voloire") == "https://www.twitch.tv/voloire");
+}
+
+TEST_CASE("LinkTracker without a YouTube channel id ends at once with a hint") {
+  StreamChannel ch;  // default profile, studioUrl https://studio.youtube.com/
+  LinkTracker t;
+  t.begin(ch, "");
+  LinkStatus s = t.status();
+  CHECK(s.state == "ended");
+  CHECK(s.liveUrl.empty());
+  CHECK(s.error.find("channel ID") != std::string::npos);
 }
 
 TEST_CASE("planShare fits the target") {

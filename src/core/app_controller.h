@@ -4,6 +4,7 @@
 #include <mutex>
 #include <thread>
 #include "config.h"
+#include "links.h"
 #include "recorder.h"
 #include "share_copy.h"
 #include "twitch.h"
@@ -39,6 +40,7 @@ class AppController {
   json shareStatus();
   json shareStart(const std::string& path, int targetMB);
 
+  LinkTracker links_;  // declared before rec_: the recorder reports its last state change while it is destroyed
   Recorder rec_;
   mutable std::mutex mu_;
   RecordConfig cfg_;

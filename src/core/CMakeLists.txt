@@ -1,5 +1,5 @@
 add_library(vv_core STATIC
-  common.cpp telemetry.cpp config.cpp http_client.cpp twitch.cpp devices.cpp sources.cpp wasapi_source.cpp
+  common.cpp telemetry.cpp config.cpp http_client.cpp twitch.cpp links.cpp devices.cpp sources.cpp wasapi_source.cpp
   video_wgc.cpp video_dxgi.cpp encoder.cpp recorder.cpp quality.cpp share_copy.cpp control.cpp app_controller.cpp
   redact.cpp secrets.cpp crash_handler.cpp)
 

@@ -85,7 +85,7 @@ class FakeTwitch:
     def env(self):
         return {"VV_TWITCH_API_BASE": self.base + "/helix", "VV_TWITCH_ID_BASE": self.base + "/oauth2",
                 "VV_TWITCH_INGEST_BASE": self.base, "VV_YOUTUBE_BASE": self.base + "/yt",
-                "VV_LINK_POLL_MS": "500", "VV_NO_BROWSER": "1"}
+                "VV_LINK_POLL_MS": "500", "VV_LINK_GRACE_MS": "3000", "VV_NO_BROWSER": "1"}
 
     @property
     def all_tokens(self):

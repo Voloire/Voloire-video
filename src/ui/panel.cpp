@@ -1418,6 +1418,7 @@ void MainPanel::startRecording() {
   }
   showError({});
   starting_ = true;
+  app_.setConfig(c);  // the state hooks (share links) read the channel that is going live
   emit changed();
   startTh_ = std::thread([this, c] {
     std::string err;

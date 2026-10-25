@@ -1280,6 +1280,87 @@ def sc_twitch_auth(out):
     return rep
 
 
+YT_FAKE_CHANNEL = "UCfakefakefakefakefake01"  # a channel id is exactly 24 characters
+
+
+def sc_youtube_links(out):
+    rep = Report("youtube_links")
+    d = out / "youtube_links"
+    if d.exists():
+        shutil.rmtree(d, ignore_errors=True)
+    d.mkdir(parents=True, exist_ok=True)
+    from fakes.rtmp_ingest import RtmpIngest
+    from fakes.twitch_api import FakeTwitch
+    if not rep.check("ffmpeg build has the rtmp protocol", capabilities()["rtmp"]):
+        return rep
+    key = "sk-live-ytlinks-abcd1234"
+    fake = FakeTwitch()  # serves the public YouTube live page too
+    ing = RtmpIngest(d, key=key)
+    ing.start()
+    (d / "settings").mkdir(parents=True, exist_ok=True)
+    (d / "settings" / "ui.json").write_text(json.dumps({"channels": [
+        {"id": "default", "label": "Main Channel", "platform": "youtube", "studioUrl": YT_FAKE_CHANNEL,
+         "streamUrl": ing.url}]}), encoding="utf-8")
+    subj = Subject(d, title="VV TestSubject Links", hz=440)
+    gui = Gui(d, "vv-e2e-yt-links", env_extra=fake.env)
+    dumps = []
+
+    def call(**req):
+        r = gui.c.call(**req)
+        dumps.append(json.dumps(r))
+        return r
+
+    def wait_for(pred, timeout):
+        end = time.time() + timeout
+        while time.time() < end:
+            v = pred()
+            if v:
+                return v
+            time.sleep(0.2)
+        return pred()
+
+    try:
+        rep.check("links before any stream: idle", call(cmd="links")["links"]["state"] == "idle")
+        call(cmd="ui_override", config={"outDir": str(d / "rec"), "name": "ytlinks", "mic": "none", "sys": "none",
+                                        "fps": 30, "streamUrl": ing.url, "telemetryDir": str(d / "telemetry")})
+        src = [m for m in call(cmd="ui_state")["menu"] if m.get("text") == "Source"][0]["menu"]
+        item = [m["text"] for m in src if "VV TestSubject Links" in m.get("text", "")][0]
+        rep.check("menu: Source > test window", call(cmd="ui_trigger", path=["Source", item], surface="hud")["ok"])
+        rep.check("menu: Output > Stream to YouTube",
+                  call(cmd="ui_trigger", path=["Output", "Stream to YouTube"], surface="hud")["ok"])
+        rep.check("set_stream_key", call(cmd="set_stream_key", key=key).get("ok") is True)
+        rep.check("menu: Go live", call(cmd="ui_trigger", path=["Go live"], surface="hud")["ok"])
+        rep.check("state becomes recording", wait_for(lambda: call(cmd="ui_state")["state"] == "recording", 20))
+
+        lk = call(cmd="links")["links"]
+        rep.check("live link is the channel's /live page at once",
+                  lk["platform"] == "youtube" and lk["liveUrl"] == f"{fake.base}/yt/channel/{YT_FAKE_CHANNEL}/live"
+                  and lk["state"] == "watching" and lk["vodUrl"] == "", lk)
+
+        fake.set_youtube_video(YT_FAKE_CHANNEL, "dQw4w9WgXcQ")
+        lk = wait_for(lambda: (lambda x: x if x["state"] == "found" else None)(call(cmd="links")["links"]), 10)
+        rep.check("watch link resolved as soon as YouTube publishes it",
+                  bool(lk) and lk["vodUrl"] == "https://youtu.be/dQw4w9WgXcQ", lk)
+
+        rep.check("status embeds the same links", call(cmd="status")["links"]["vodUrl"] == "https://youtu.be/dQw4w9WgXcQ")
+
+        rep.check("menu: End stream", call(cmd="ui_trigger", path=["End stream"], surface="hud")["ok"])
+        rep.check("back to idle", wait_for(lambda: call(cmd="ui_state")["state"] == "idle", 20))
+        lk = call(cmd="links")["links"]
+        rep.check("after the stream: ended, the link is kept",
+                  lk["state"] == "ended" and lk["vodUrl"] == "https://youtu.be/dQw4w9WgXcQ", lk)
+
+        ing.stop()
+        hits = scan_for_secrets([d / "telemetry", d / "settings", *dumps], [key])
+        rep.check("no key leak in the dumps, the settings or the telemetry", not hits, hits)
+    finally:
+        gui.close()
+        subj.stop()
+        ing.stop()
+        fake.stop()
+    return rep
+
+
 def sc_installers(out):
     import sc_installers
     return sc_installers.run(out)
@@ -1308,6 +1389,7 @@ SCENARIOS = {
     "hud": sc_hud,
     "ui_stream": sc_ui_stream,
     "twitch_auth": sc_twitch_auth,
+    "youtube_links": sc_youtube_links,
     "soak": sc_longer_soak,
     "installers": sc_installers,
 }
