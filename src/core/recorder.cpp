@@ -11,6 +11,7 @@
 #include "redact.h"
 #include "secrets.h"
 #include "telemetry.h"
+#include "video_layout.h"
 
 namespace vv {
 
@@ -202,12 +203,10 @@ bool Recorder::start(const RecordConfig& cfg, std::string& err) {
     ep.maxQueueMs = 3000;
     ep.startPtsUs = 0;
     ep.bitrateKbps = cfg.streamBitrateKbps;
-    ep.width = sw;
-    ep.height = sh;
-    if (cfg.streamHeight > 0 && ep.height > cfg.streamHeight) {
-      ep.height = cfg.streamHeight & ~1;
-      ep.width = (int)std::lround((double)sw * ep.height / sh) & ~1;
-    }
+    const auto canvas = streamCanvas(sw, sh, cfg.streamHeight);
+    ep.width = canvas.width;
+    ep.height = canvas.height;
+    ep.preserveAspect = true;
     ep.audioTracks.push_back("MIX");
     mixIndex_ = 0;
   } else {

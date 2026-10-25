@@ -51,6 +51,8 @@ class MainPanel : public QWidget {
   void setContainer(const QString& v);
   void setCodec(const QString& v);
   void setHeight(int h);
+  void setStreamHeight(int h);
+  QString encodingSummary() const;
   void setFps(int fps);
   void setQuality(const QString& v);  // high | standard | light | minimal | custom
   void setMic(const QString& mode, const QString& id = {});   // default | device | none
@@ -178,6 +180,7 @@ class MainPanel : public QWidget {
   void syncKeyUi();
   void refreshChannelCombos();
   void refreshDestination();
+  void syncStreamEncodingControls();
   void applyAudioMix();
   void stopIdleAudio();
   void pollIdleAudio();
@@ -208,6 +211,9 @@ class MainPanel : public QWidget {
       *fpsCombo_, *qualityCombo_, *shareCombo_, *outputCombo_;
   QComboBox *channelCombo_ = nullptr, *ytChannelCombo_ = nullptr;
   QComboBox* destinationCombo_ = nullptr;
+  QComboBox *twStreamResCombo_ = nullptr, *twFpsCombo_ = nullptr;
+  QSpinBox* twBitrate_ = nullptr;
+  QLabel* streamSummaryLabel_ = nullptr;
   QComboBox *ytOutputCombo_ = nullptr, *streamServerCombo_ = nullptr, *streamPresetCombo_ = nullptr,
             *streamResCombo_ = nullptr, *ytFpsCombo_ = nullptr, *ytEncoderCombo_ = nullptr,
             *ytSysCombo_ = nullptr, *ytMicCombo_ = nullptr;

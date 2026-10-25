@@ -13,6 +13,7 @@ struct EncoderParams {
   std::string codec = "h264";
   std::string encoder = "auto";
   int width = 0, height = 0;  // output size, even
+  bool preserveAspect = false;  // fit content inside the canvas, padding with limited-range black
   int fps = 60;
   int bitrateKbps = 12000;
   std::string rateControl = "vbr";  // vbr | cbr

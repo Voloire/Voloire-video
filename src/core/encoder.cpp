@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <cstdarg>
 #include <cstdint>
+#include <cstring>
 #include <deque>
 #include <mutex>
 #include <thread>
@@ -18,6 +19,7 @@ extern "C" {
 #include "common.h"
 #include "redact.h"
 #include "telemetry.h"
+#include "video_layout.h"
 
 namespace vv {
 
@@ -379,7 +381,10 @@ bool Muxer::open(const EncoderParams& p, std::string& err) {
 
 bool Muxer::writeVideo(const VideoFrame& f, int64_t ptsUs) {
   auto& d = *d_;
-  d.sws = sws_getCachedContext(d.sws, f.w, f.h, AV_PIX_FMT_BGRA, d.p.width, d.p.height, AV_PIX_FMT_NV12,
+  const VideoRect fit = d.p.preserveAspect ? fitVideo(f.w, f.h, d.p.width, d.p.height)
+                                          : VideoRect{0, 0, d.p.width, d.p.height};
+  if (fit.width < 2 || fit.height < 2) return false;
+  d.sws = sws_getCachedContext(d.sws, f.w, f.h, AV_PIX_FMT_BGRA, fit.width, fit.height, AV_PIX_FMT_NV12,
                                SWS_BILINEAR, nullptr, nullptr, nullptr);
   if (!d.sws) return false;
   if (f.w != d.inW || f.h != d.inH) {
@@ -391,7 +396,15 @@ bool Muxer::writeVideo(const VideoFrame& f, int64_t ptsUs) {
   if (av_frame_make_writable(d.vframe) < 0) return false;
   const uint8_t* src[1] = {f.bgra.data()};
   int stride[1] = {f.w * 4};
-  sws_scale(d.sws, src, stride, 0, f.h, d.vframe->data, d.vframe->linesize);
+  if (fit.width != d.p.width || fit.height != d.p.height) {
+    for (int y = 0; y < d.p.height; ++y)
+      std::memset(d.vframe->data[0] + y * d.vframe->linesize[0], 16, d.p.width);
+    for (int y = 0; y < d.p.height / 2; ++y)
+      std::memset(d.vframe->data[1] + y * d.vframe->linesize[1], 128, d.p.width);
+  }
+  uint8_t* dst[4] = {d.vframe->data[0] + fit.y * d.vframe->linesize[0] + fit.x,
+                     d.vframe->data[1] + (fit.y / 2) * d.vframe->linesize[1] + fit.x, nullptr, nullptr};
+  if (sws_scale(d.sws, src, stride, 0, f.h, dst, d.vframe->linesize) != fit.height) return false;
   int64_t pts = (int64_t)std::llround((double)ptsUs * d.p.fps / 1e6);
   if (pts <= d.lastVpts) pts = d.lastVpts + 1;
   d.lastVpts = pts;

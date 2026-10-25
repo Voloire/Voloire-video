@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QEventLoop>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QTemporaryDir>
 #include <QTimer>
 #include "control_menu.h"
@@ -103,8 +104,10 @@ TEST_CASE("the destination selector controls actual routing and stays consistent
       buildControlMenu(menu, panel, {});
       CHECK(menu.actions()[0]->text() == "Destination: " + d.caption());
       CHECK_FALSE(menu.actions()[0]->icon().isNull());
-      CHECK(menu.actions()[1]->text() == d.actionText(false, true));
-      CHECK(menu.actions()[1]->isEnabled() == !stream);  // no key in isolated settings
+      QAction* start = nullptr;
+      for (auto* a : menu.actions()) if (a->text() == d.actionText(false, true)) start = a;
+      REQUIRE(start != nullptr);
+      CHECK(start->isEnabled() == !stream);  // no key in isolated settings
       const QString proof = d.platform + (dark ? "_dark" : "_light");
       panel.resize(620, 715);
       saveProof(panel, proof + "_panel");
@@ -120,6 +123,77 @@ TEST_CASE("the destination selector controls actual routing and stays consistent
   panel.startRecording();
   CHECK(panel.recState() == vv::RecState::Idle);
   CHECK(panel.errorText().contains("disabled in functional UI tests"));
+  qunsetenv("VV_SETTINGS_DIR");
+}
+
+TEST_CASE("HUD resolution edits route to streaming and Twitch controls mirror the real settings") {
+  QTemporaryDir settings;
+  REQUIRE(settings.isValid());
+  qputenv("VV_SETTINGS_DIR", settings.path().toUtf8());
+  vv::RecordConfig c;
+  c.output = "stream"; c.streamChannel = "tw_voloire";
+  c.outHeight = 720; c.streamHeight = 0; c.streamBitrateKbps = 16000;
+  vv::saveSettings(c);
+  vv::UiPrefs prefs;
+  vv::StreamChannel yt, tw;
+  yt.id = "default";
+  tw.id = "tw_voloire"; tw.platform = "twitch"; tw.label = "voloire"; tw.twitchLogin = "voloire";
+  prefs.channels = {yt, tw};
+  prefs.darkTheme = true;
+  vv::saveUiPrefs(prefs);
+  vv::AppController ctl;
+  ctl.setConfig(c);
+  MainPanel panel(ctl, nullptr, true);
+  panel.setPrefs(&prefs);
+  auto* twRes = panel.findChild<QComboBox*>("twitchStreamResolution");
+  auto* twFps = panel.findChild<QComboBox*>("twitchStreamFps");
+  auto* twKbps = panel.findChild<QSpinBox*>("twitchStreamBitrate");
+  auto* streamKbps = panel.findChild<QSpinBox*>("streamBitrate");
+  REQUIRE(twRes); REQUIRE(twFps); REQUIRE(twKbps); REQUIRE(streamKbps);
+  CHECK(panel.activeChannelPlatform() == "twitch");
+  CHECK(panel.currentConfig().streamHeight == 0);
+  CHECK(panel.currentConfig().streamBitrateKbps == 6000);
+  QMenu menu;
+  buildControlMenu(menu, panel, {});
+  REQUIRE(triggerMenu(menu, {"Format", "Resolution", "1080p"}));
+  CHECK(panel.currentConfig().streamHeight == 1080);
+  CHECK(panel.currentConfig().outHeight == 720);
+  CHECK(vv::loadSettings().streamHeight == 1080);
+  CHECK(twRes->currentData().toInt() == 1080);
+  CHECK(panel.encodingSummary().contains("1920x1080"));
+  CHECK(panel.encodingSummary().contains("6000 kbps"));
+  HudBar hud(&panel, &prefs);
+  CHECK(hud.state()["text"].get<std::string>().find("1920x1080") != std::string::npos);
+  twRes->setCurrentIndex(twRes->findData(720));
+  twFps->setCurrentIndex(twFps->findData(30));
+  twKbps->setValue(4500);
+  CHECK(panel.currentConfig().streamHeight == 720);
+  CHECK(panel.currentConfig().fps == 30);
+  CHECK(panel.currentConfig().streamBitrateKbps == 4500);
+  panel.setOutput("file");
+  panel.setHeight(480);
+  CHECK(panel.currentConfig().outHeight == 480);
+  CHECK(panel.currentConfig().streamHeight == 720);
+  panel.setOutput("stream");
+  panel.setHeight(0);
+  CHECK(panel.currentConfig().streamHeight == 0);
+  CHECK(twRes->currentData().toInt() == 0);
+  CHECK(panel.encodingSummary().contains("NATIVE SIZE"));
+  panel.selectChannel("default");
+  streamKbps->setValue(16000);
+  CHECK(panel.currentConfig().streamBitrateKbps == 16000);
+  panel.selectChannel("tw_voloire");
+  CHECK(panel.currentConfig().streamBitrateKbps == 6000);
+  panel.setHeight(1080);
+  panel.setFps(60);
+  panel.setActiveTab(2);
+  panel.show();
+  settle();
+  for (bool dark : {true, false}) {
+    panel.setDarkMode(dark);
+    saveProof(panel, dark ? "stream_settings_dark" : "stream_settings_light");
+    saveProof(hud, dark ? "stream_settings_dark_hud" : "stream_settings_light_hud");
+  }
   qunsetenv("VV_SETTINGS_DIR");
 }
 

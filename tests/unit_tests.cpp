@@ -20,9 +20,37 @@
 #include "sources.h"
 #include "twitch.h"
 #include "telemetry.h"
+#include "video_layout.h"
 
 using namespace vv;
 namespace fs = std::filesystem;
+
+TEST_CASE("named stream canvases and fit rectangles preserve ultrawide content" * doctest::test_suite("functional")) {
+  auto fullHd = streamCanvas(2560, 1080, 1080);
+  CHECK(fullHd.width == 1920);
+  CHECK(fullHd.height == 1080);
+  auto fit = fitVideo(2560, 1080, fullHd.width, fullHd.height);
+  CHECK(fit.width == 1920);
+  CHECK(fit.height == 810);
+  CHECK(fit.x == 0);
+  CHECK(fit.y == 134);
+  auto native = streamCanvas(2560, 1080, 0);
+  CHECK(native.width == 2560);
+  CHECK(native.height == 1080);
+  auto hd = streamCanvas(3440, 1440, 720);
+  CHECK(hd.width == 1280);
+  CHECK(hd.height == 720);
+  for (auto source : {VideoSize{1920,1080}, VideoSize{3440,1440}, VideoSize{2560,1020},
+                      VideoSize{1080,1920}, VideoSize{1279,719}, VideoSize{640,480}}) {
+    auto r = fitVideo(source.width, source.height, 1920, 1080);
+    CHECK(r.x >= 0); CHECK(r.y >= 0);
+    CHECK(r.x + r.width <= 1920); CHECK(r.y + r.height <= 1080);
+    CHECK(r.x % 2 == 0); CHECK(r.y % 2 == 0);
+    CHECK(r.width % 2 == 0); CHECK(r.height % 2 == 0);
+    CHECK(std::abs((double)r.width / r.height - (double)source.width / source.height) < 0.01);
+  }
+  CHECK(fitVideo(0,0,1920,1080).width == 0);
+}
 
 namespace {
 fs::path tempDir(const char* leaf) {
