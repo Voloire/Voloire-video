@@ -22,6 +22,7 @@ class QSlider;
 class QSpinBox;
 class QTabWidget;
 class QTimer;
+class QScreen;
 
 namespace vv::ui {
 
@@ -146,11 +147,17 @@ class MainPanel : public QWidget {
   void changed();  // state or configuration changed: tray refreshes
 
  protected:
+  void showEvent(QShowEvent* e) override;
+  void resizeEvent(QResizeEvent* e) override;
   bool eventFilter(QObject* o, QEvent* e) override;
   void mousePressEvent(QMouseEvent* e) override;
   void mouseMoveEvent(QMouseEvent* e) override;
 
  private:
+  void fitToScreen();
+  QPointer<QScreen> boundsScreen_;
+  bool fittingScreen_ = false;
+  bool screenSignalConnected_ = false;
   void build();
   void poll();
   void trackForeground();

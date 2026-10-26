@@ -46,6 +46,15 @@ jobs:
         shell: pwsh
         run: build\bin\vv_ui_functional_tests.exe
 
+      - name: Functional window bounds and scrolling at Windows display scales
+        shell: pwsh
+        run: |
+          foreach ($scale in '1.25', '1.5', '2') {
+            $env:QT_SCALE_FACTOR = $scale
+            build\bin\vv_ui_functional_tests.exe '--test-case=panel stays*'
+            if ($LASTEXITCODE -ne 0) { throw "Window/scroll regression at scale $scale" }
+          }
+
       - name: Full unit suite (optional media validation)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.media_tests }}
         shell: pwsh

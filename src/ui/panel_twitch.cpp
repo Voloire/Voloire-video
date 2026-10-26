@@ -207,10 +207,11 @@ void MainPanel::buildTwitchTab() {
   auto* scroll = new QScrollArea(tabs_);
   scroll->setWidgetResizable(true);
   scroll->setFrameShape(QFrame::NoFrame);
-  scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   auto* widget = new QWidget(scroll);
   widget->setObjectName("scrollBody");
   auto* body = new QVBoxLayout(widget);
+  body->setSizeConstraint(QLayout::SetMinAndMaxSize);
   body->setContentsMargins(0, 4, 0, 4);
   body->setSpacing(6);
   scroll->setWidget(widget);
