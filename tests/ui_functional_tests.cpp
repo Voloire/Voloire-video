@@ -6,9 +6,14 @@
 #include <QDir>
 #include <QEventLoop>
 #include <QPushButton>
+#include <QScreen>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <QTabWidget>
 #include <QSpinBox>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QWheelEvent>
 #include "control_menu.h"
 #include "destination.h"
 #include "hud.h"
@@ -194,6 +199,84 @@ TEST_CASE("HUD resolution edits route to streaming and Twitch controls mirror th
     saveProof(panel, dark ? "stream_settings_dark" : "stream_settings_light");
     saveProof(hud, dark ? "stream_settings_dark_hud" : "stream_settings_light_hud");
   }
+  qunsetenv("VV_SETTINGS_DIR");
+}
+
+TEST_CASE("panel stays inside the work area and every tab scrolls to its last control") {
+  QTemporaryDir settings;
+  REQUIRE(settings.isValid());
+  qputenv("VV_SETTINGS_DIR", settings.path().toUtf8());
+  vv::RecordConfig config;
+  config.output = "stream"; config.streamChannel = "tw_voloire";
+  config.streamHeight = 1080; config.streamBitrateKbps = 6000; config.fps = 120;
+  vv::saveSettings(config);
+  vv::UiPrefs prefs;
+  vv::StreamChannel twitch;
+  twitch.id = config.streamChannel; twitch.platform = "twitch"; twitch.twitchLogin = "voloire";
+  twitch.title = "Mortal Shell II - Chill Playthrough (ITA) - NoCommentary";
+  twitch.categoryName = "Mortal Shell II";
+  prefs.channels = {twitch};
+  vv::saveUiPrefs(prefs);
+  vv::AppController ctl;
+  ctl.setConfig(config);
+  MainPanel panel(ctl, nullptr, true);
+  panel.setPrefs(&prefs);
+  panel.show();
+  settle();
+  auto* tabs = panel.findChild<QTabWidget*>();
+  REQUIRE(tabs);
+  const QRect work = panel.screen()->availableGeometry();
+  for (bool dark : {true, false}) {
+    panel.setDarkMode(dark);
+    for (QSize requested : {QSize(620, 500), QSize(420, 380), QSize(1200, 1600)}) {
+      panel.resize(requested);
+      settle();
+      CHECK(work.contains(panel.frameGeometry()));
+      for (int tab = 0; tab < tabs->count(); ++tab) {
+        panel.setActiveTab(tab);
+        settle();
+        auto* scroll = qobject_cast<QScrollArea*>(tabs->widget(tab));
+        REQUIRE(scroll);
+        auto* horizontal = scroll->horizontalScrollBar();
+        horizontal->setValue(horizontal->maximum());
+        auto* bar = scroll->verticalScrollBar();
+        bar->setValue(bar->minimum());
+        const QPointF center(scroll->viewport()->rect().center());
+        // Each wheel event scrolls at most one page, even with a large delta.
+        for (int page = 0; page < 40 && bar->value() < bar->maximum(); ++page) {
+          QWheelEvent wheel(center, scroll->viewport()->mapToGlobal(center.toPoint()),
+                            QPoint(), QPoint(0, -120000), Qt::NoButton, Qt::NoModifier,
+                            Qt::NoScrollPhase, false);
+          QApplication::sendEvent(scroll->viewport(), &wheel);
+        }
+        settle();
+        CHECK(bar->value() == bar->maximum());
+        CHECK(panel.rect().contains(scroll->mapTo(&panel, scroll->rect().bottomRight())));
+        int lastBottom = -1;
+        int lastRight = -1;
+        for (auto* button : scroll->widget()->findChildren<QPushButton*>()) {
+          if (!button->isVisible()) continue;
+          const int bottom = button->mapTo(scroll->viewport(), button->rect().bottomRight()).y();
+          lastBottom = std::max(lastBottom, bottom);
+          lastRight = std::max(lastRight, button->mapTo(scroll->viewport(), button->rect().bottomRight()).x());
+        }
+        INFO("tab=", tab, " requested=", requested.width(), "x", requested.height(),
+             " window=", panel.width(), "x", panel.height(), " bottom=", lastBottom,
+             " viewport=", scroll->viewport()->height(), " max=", bar->maximum());
+        CHECK(lastBottom >= 0);
+        CHECK(lastBottom < scroll->viewport()->height());
+        CHECK(lastRight < scroll->viewport()->width());
+        if (horizontal->maximum() > 0) CHECK(horizontal->isVisible());
+        if (requested == QSize(620, 500))
+          saveProof(panel, QString("scroll_bottom_%1_%2").arg(tab).arg(dark ? "dark" : "light"));
+      }
+    }
+  }
+  panel.hide();
+  panel.move(work.right() + 100, work.bottom() + 100);
+  panel.show();
+  settle();
+  CHECK(work.contains(panel.frameGeometry()));
   qunsetenv("VV_SETTINGS_DIR");
 }
 

@@ -16,6 +16,9 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QScreen>
+#include <QScopedValueRollback>
+#include <QShowEvent>
+#include <QResizeEvent>
 #include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSizeGrip>
@@ -27,6 +30,7 @@
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWindow>
+#include <algorithm>
 #include <cmath>
 #include <windows.h>
 #include "links.h"
@@ -88,11 +92,12 @@ MainPanel::MainPanel(vv::AppController& app, QWidget* parent, bool functionalOnl
   setMinimumSize(420, 380);
   build();
   refreshSources();
-  QRect avail = QGuiApplication::primaryScreen() ? QGuiApplication::primaryScreen()->availableGeometry() : QRect(0, 0, 1280, 720);
+  QRect avail = screen() ? screen()->availableGeometry() : QRect(0, 0, 1280, 720);
   int w = std::min(620, avail.width() - 40);
   int h = std::min(715, avail.height() - 32);
   resize(w, h);
   move(avail.x() + (avail.width() - w) / 2, avail.y() + (avail.height() - h) / 2);
+  fitToScreen();
 
   pollTimer_ = new QTimer(this);
   connect(pollTimer_, &QTimer::timeout, this, &MainPanel::poll);
@@ -106,6 +111,43 @@ MainPanel::~MainPanel() {
   stopIdleAudio();
   if (startTh_.joinable()) startTh_.join();
   for (auto& task : asyncTasks_) task.wait();
+}
+
+void MainPanel::fitToScreen() {
+  if (fittingScreen_) return;
+  QScopedValueRollback<bool> fitting(fittingScreen_, true);
+  QScreen* target = screen();
+  if (!target) return;
+  if (boundsScreen_ != target) {
+    if (boundsScreen_)
+      disconnect(boundsScreen_, &QScreen::availableGeometryChanged, this, &MainPanel::fitToScreen);
+    boundsScreen_ = target;
+    connect(target, &QScreen::availableGeometryChanged, this, &MainPanel::fitToScreen);
+  }
+  // Qt geometry is already in logical pixels, including Windows display scaling and taskbar.
+  const QRect work = target->availableGeometry();
+  if (work.isEmpty()) return;
+  setMinimumSize(std::min(420, work.width()), std::min(380, work.height()));
+  setMaximumSize(work.size());
+  const QSize fitted = size().boundedTo(work.size());
+  const QPoint origin(std::clamp(x(), work.left(), work.right() - fitted.width() + 1),
+                      std::clamp(y(), work.top(), work.bottom() - fitted.height() + 1));
+  const QRect bounded(origin, fitted);
+  if (geometry() != bounded) setGeometry(bounded);
+}
+
+void MainPanel::showEvent(QShowEvent* e) {
+  QWidget::showEvent(e);
+  if (!screenSignalConnected_ && windowHandle()) {
+    connect(windowHandle(), &QWindow::screenChanged, this, &MainPanel::fitToScreen);
+    screenSignalConnected_ = true;
+  }
+  fitToScreen();
+}
+
+void MainPanel::resizeEvent(QResizeEvent* e) {
+  QWidget::resizeEvent(e);
+  fitToScreen();
 }
 
 void MainPanel::build() {
@@ -219,10 +261,11 @@ void MainPanel::build() {
   auto* scroll = new QScrollArea(tabs_);
   scroll->setWidgetResizable(true);
   scroll->setFrameShape(QFrame::NoFrame);
-  scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   auto* scrollBody = new QWidget(scroll);
   scrollBody->setObjectName("scrollBody");
   auto* body = new QVBoxLayout(scrollBody);
+  body->setSizeConstraint(QLayout::SetMinAndMaxSize);
   body->setContentsMargins(0, 4, 0, 4);
   body->setSpacing(6);
   scroll->setWidget(scrollBody);
@@ -517,10 +560,11 @@ void MainPanel::build() {
     auto* ytScroll = new QScrollArea(tabs_);
     ytScroll->setWidgetResizable(true);
     ytScroll->setFrameShape(QFrame::NoFrame);
-    ytScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    ytScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     auto* ytWidget = new QWidget(ytScroll);
     ytWidget->setObjectName("scrollBody");
     auto* ytBody = new QVBoxLayout(ytWidget);
+    ytBody->setSizeConstraint(QLayout::SetMinAndMaxSize);
     ytBody->setContentsMargins(0, 4, 0, 4);
     ytBody->setSpacing(6);
     ytScroll->setWidget(ytWidget);
